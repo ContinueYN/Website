@@ -45,6 +45,12 @@ export interface ClusterIntroOptions {
   onReveal: () => void
   /** 首帧渲染完成回调（宿主让加载遮罩淡出，露出已开始旋转的小球） */
   onReady?: () => void
+  /**
+   * intro（默认）：开场流程，小球自旋等待点击。
+   * return：回归流程，首帧即为盖满屏幕的马赛克（「碎开」的页面），
+   * 稍后反向拼回小球并进入自旋，等待点击重新进入网站。
+   */
+  mode?: 'intro' | 'return'
 }
 
 export interface ClusterIntroHandle {
@@ -64,7 +70,7 @@ interface GridTarget {
   scale: number
 }
 
-type IntroState = 'spin' | 'explode' | 'flatten' | 'done'
+type IntroState = 'spin' | 'explode' | 'flatten' | 'return' | 'done'
 
 /**
  * 给可能挂起的初始化步骤加超时（如无 WebGPU adapter 时 requestAdapter 可能永不返回）。
@@ -432,6 +438,34 @@ export async function createClusterIntro(
     gsap.to(flattenMix, { value: 1, duration: FLATTEN_DURATION, ease: 'power2.inOut' })
   }
 
+  // ---------- 回归模式：首帧即满屏马赛克，稍后反向拼回小球 ----------
+  let returnTimer = 0
+  if (opts.mode === 'return') {
+    state = 'return'
+    radialGain.value = 0
+    flattenMix.value = 1
+    innerMesh.rotation.y = 0
+    buildGridTargets()
+    applyFlatten(1)
+    // 先以完整马赛克亮相（宿主此时淡出故障闪烁层），随后反向拼球
+    returnTimer = window.setTimeout(() => {
+      flattenProgress = { p: 1 }
+      gsap.to(flattenProgress, {
+        p: 0,
+        duration: FLATTEN_DURATION,
+        ease: 'power2.inOut',
+        onUpdate: () => {
+          if (flattenProgress) applyFlatten(flattenProgress.p)
+        },
+        onComplete: () => {
+          state = 'spin'
+        },
+      })
+      gsap.to(radialGain, { value: 1, duration: FLATTEN_DURATION, ease: 'power2.inOut' })
+      gsap.to(flattenMix, { value: 0, duration: FLATTEN_DURATION, ease: 'power2.inOut' })
+    }, 800)
+  }
+
   // ---------- 交互：悬停扩散 + 点击爆开（射线拾取隐形内球） ----------
   const ndc = new THREE.Vector2()
   const raycaster = new THREE.Raycaster()
@@ -523,6 +557,7 @@ export async function createClusterIntro(
   function dispose() {
     if (disposed.current) return
     disposed.current = true
+    window.clearTimeout(returnTimer)
     container.removeEventListener('pointermove', onPointerMove)
     container.removeEventListener('pointerdown', onPointerDown)
     resizeObserver.disconnect()

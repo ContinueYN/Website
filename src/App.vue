@@ -7,14 +7,20 @@
       :is-dark="isDark"
     />
 
-    <!-- 3D 碎片球开场转场（加载动画结束后、首页内容前） -->
+    <!-- 3D 碎片球开场转场（加载动画结束后、首页内容前）；
+         mode=return 时为「回归」流程：About 连点 3 次触发全站故障后，
+         满屏马赛克（碎开的页面）反向拼回小球，再点击小球重新进入网站 -->
     <ClusterIntro
       v-if="showIntro"
+      :mode="introMode"
       @ready="onIntroReady"
       @reveal="onIntroReveal"
       @fading="onIntroFading"
       @done="onIntroDone"
     />
+
+    <!-- 全站故障闪烁层：回归流程的最外层，马赛克首帧就绪后淡出 -->
+    <GlitchStorm v-if="glitchStorm" :leaving="glitchLeaving" />
 
     <!-- 博客相关页面 -->
     <template v-if="isBlogPath">
@@ -60,11 +66,14 @@ import Contact from './components/Contact.vue'
 import Footer from './components/Footer.vue'
 import ArtBackground from './components/ArtBackground.vue'
 import ClusterIntro from './components/ClusterIntro.vue'
+import GlitchStorm from './components/GlitchStorm.vue'
 import AOS from 'aos'
 import { useTheme } from './composables/useTheme'
+import { useScrollLock } from './composables/useScrollLock'
 import { shouldSkipCluster } from './utils/clusterGate'
 
 const { isDark, toggleTheme } = useTheme()
+const { lock: lockScroll, unlock: unlockScroll } = useScrollLock()
 const route = useRoute()
 
 // 控制主页内容是否渲染（等待加载动画完成）
@@ -73,6 +82,13 @@ const showContent = ref(false)
 const contentReady = ref(false)
 // 控制 3D 开场转场是否显示（加载完成后、支持 WebGPU 且非移动端时）
 const showIntro = ref(false)
+// 转场模式：intro=开场（默认）；return=About 连点触发的回归流程
+const introMode = ref<'intro' | 'return'>('intro')
+// 全站故障闪烁层状态（回归流程第一阶段）
+const glitchStorm = ref(false)
+const glitchLeaving = ref(false)
+// 回归流程互斥：进行中忽略再次触发，避免叠加
+let stormRunning = false
 // AOS 只初始化一次（intro 正常/降级两条路径都会走到）
 let aosInited = false
 
@@ -120,15 +136,54 @@ function notifyIntroReady() {
 }
 
 // intro 事件：马赛克盖满屏幕 → 挂载内容；开始淡出 → 播 AOS；结束 → 卸载
-const onIntroReady = () => notifyIntroReady()
+const onIntroReady = () => {
+  notifyIntroReady()
+  // 回归流程：马赛克首帧已渲染且 fixed 全屏盖住视口，此刻回顶不可见
+  // （小球重进网站时即处于顶部；闪烁期间不回顶，页面停在用户当前浏览位置）
+  if (glitchStorm.value) {
+    window.scrollTo(0, 0)
+    glitchLeaving.value = true
+    window.setTimeout(() => {
+      glitchStorm.value = false
+      glitchLeaving.value = false
+    }, 480)
+  }
+}
 const onIntroReveal = () => revealContent()
 const onIntroFading = () => initAOS()
 const onIntroDone = () => {
   showIntro.value = false
+  introMode.value = 'intro'
+  stormRunning = false
+  unlockScroll()
+  // 通知 About：回归流程结束，连点计数重新武装
+  window.dispatchEvent(new Event('cluster-reset'))
   // 兜底：intro 中途失败/降级时也保证内容出现并播动画、遮罩淡出
   if (!showContent.value) revealContent()
   initAOS()
   notifyIntroReady()
+}
+
+// About 标题连点 3 次 → 全站故障闪烁 → 「碎开」成马赛克 → 反向拼回 3D 小球
+function startGlitchStorm() {
+  if (stormRunning || showIntro.value) return
+  stormRunning = true
+  glitchStorm.value = true
+  // 只锁滚动（无视觉跳变），不回顶：故障层是 fixed 全屏，直接盖在当前视口上闪烁；
+  // 回顶推迟到马赛克首帧盖满屏幕后（见 onIntroReady）
+  lockScroll()
+  if (shouldSkipCluster()) {
+    // 不支持 WebGPU / 移动端：无法播 3D 回归动画，故障闪烁后直接刷新走加载流程
+    window.setTimeout(() => window.location.reload(), 1100)
+    return
+  }
+  // 故障闪烁约 0.65s 后挂载回归版转场：首帧满屏马赛克即「碎开」，
+  // 其 ready 事件再淡出故障层（见 onIntroReady）
+  window.setTimeout(() => {
+    introMode.value = 'return'
+    showIntro.value = true
+    void import('./utils/clusterIntro').catch(() => {})
+  }, 650)
 }
 
 onMounted(() => {
@@ -158,6 +213,9 @@ onMounted(() => {
   } else {
     window.addEventListener('loading-complete', onLoadComplete)
   }
+
+  // About 连点 3 次触发的全站故障回归流程
+  window.addEventListener('glitch-storm', startGlitchStorm)
 })
 
 // 监听路由变化，刷新 AOS；intro 期间跳到博客则卸载转场

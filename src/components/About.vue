@@ -63,7 +63,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { X } from 'lucide-vue-next'
 import { useScrollLock } from '../composables/useScrollLock'
 
@@ -81,6 +81,18 @@ const setHeaderRef = (el, index) => {
   if (el) {
     headerRefs.value[index] = el
   }
+}
+
+// 连点计数：窗口内点满 3 次触发全站故障；回归流程结束后（cluster-reset）重新武装
+// 窗口取 3.5s：单击故障效果本身闪动约 0.6s，留足用户在两次闪烁之间落点的时间
+const FAULT_WINDOW_MS = 3500
+let faultClicks = 0
+let lastFaultAt = 0
+let stormFired = false
+
+const onClusterReset = () => {
+  stormFired = false
+  faultClicks = 0
 }
 
 const cards = ref([
@@ -201,6 +213,19 @@ const closeModal = () => {
 }
 
 const triggerFault = () => {
+  if (stormFired) return
+
+  // 2.5s 内连点 3 次：触发全站故障 → 碎开 → 拼回 3D 小球（由 App.vue 接管）
+  const now = Date.now()
+  faultClicks = now - lastFaultAt <= FAULT_WINDOW_MS ? faultClicks + 1 : 1
+  lastFaultAt = now
+  if (faultClicks >= 3) {
+    stormFired = true
+    faultClicks = 0
+    window.dispatchEvent(new Event('glitch-storm'))
+    return
+  }
+
   if (faultPlayer.value) {
     clearInterval(faultPlayer.value)
   }
@@ -216,17 +241,18 @@ const triggerFault = () => {
         header.style.clipPath = ''
       }
     })
-  }, 1000)
-  
+  }, 550)
+
+  // 跳幅/裁剪收敛：文字保持在原位附近闪烁，保证连点时仍可命中（3 次触发全站故障）
   faultPlayer.value = setInterval(() => {
     headerRefs.value.forEach((header) => {
       if (header) {
         header.classList.add("header-fault")
-        header.style.transform = `translate(${Math.random() * 60 - 30}%,${Math.random() * 60 - 30}%)`
-        let x = Math.random() * 100
-        let y = Math.random() * 100
-        let h = Math.random() * 50 + 50
-        let w = Math.random() * 40 + 10
+        header.style.transform = `translate(${Math.random() * 24 - 12}%,${Math.random() * 16 - 8}%)`
+        let x = Math.random() * 60
+        let y = Math.random() * 30
+        let h = Math.random() * 40 + 60
+        let w = Math.random() * 30 + 30
         header.style.clipPath = `polygon(${x}% ${y}%, ${x + w}% ${y}%, ${x + w}% ${y + h}%, ${x}% ${y + h}%)`
       }
     })
@@ -235,6 +261,11 @@ const triggerFault = () => {
 
 onMounted(() => {
   init()
+  window.addEventListener('cluster-reset', onClusterReset)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('cluster-reset', onClusterReset)
 })
 </script>
 
@@ -296,6 +327,90 @@ onMounted(() => {
   transform: translateX(-2%);
 }
 
+/* 悬停：About 四周浮现故障风格的线条（青/品红错位边框 + 扫描条），提示可点击 */
+.header-container::before,
+.header-container::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+
+.header-container::before {
+  inset: -0.9rem -1.5rem;
+  z-index: -1;
+  /* 上下左右各两条错位的青/品红短线，模拟信号错乱的取景框 */
+  background:
+    linear-gradient(90deg, rgba(0, 255, 255, 0.85), rgba(0, 255, 255, 0.85)) 0 0 / 42% 2px,
+    linear-gradient(90deg, rgba(255, 0, 255, 0.85), rgba(255, 0, 255, 0.85)) 100% 0 / 48% 2px,
+    linear-gradient(90deg, rgba(0, 255, 255, 0.6), rgba(0, 255, 255, 0.6)) 0 100% / 55% 2px,
+    linear-gradient(90deg, rgba(255, 0, 255, 0.6), rgba(255, 0, 255, 0.6)) 100% 100% / 50% 2px,
+    linear-gradient(180deg, rgba(0, 255, 255, 0.75), rgba(0, 255, 255, 0.75)) 0 0 / 2px 46%,
+    linear-gradient(180deg, rgba(255, 0, 255, 0.75), rgba(255, 0, 255, 0.75)) 100% 0 / 2px 52%,
+    linear-gradient(180deg, rgba(255, 0, 255, 0.55), rgba(255, 0, 255, 0.55)) 0 100% / 2px 55%,
+    linear-gradient(180deg, rgba(0, 255, 255, 0.55), rgba(0, 255, 255, 0.55)) 100% 100% / 2px 50%;
+  background-repeat: no-repeat;
+  animation: about-frame-jitter 0.28s steps(2, end) infinite;
+}
+
+.header-container::after {
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 2px;
+  z-index: -1;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.7), transparent);
+  box-shadow: 0 0 8px rgba(0, 255, 255, 0.8);
+  animation: about-scan-sweep 0.9s linear infinite;
+}
+
+.header-container:hover::before,
+.header-container:hover::after {
+  opacity: 1;
+}
+
+@keyframes about-frame-jitter {
+  0% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(1.5px, -1px);
+  }
+  100% {
+    transform: translate(-1px, 1.5px);
+  }
+}
+
+@keyframes about-scan-sweep {
+  0% {
+    top: -10%;
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  88% {
+    opacity: 1;
+  }
+  100% {
+    top: 110%;
+    opacity: 0;
+  }
+}
+
+/* 悬停时叠加的 About 图层错位出红/蓝图影（RGB 分离感）；
+   点击故障期间由 JS 内联 transform 接管，互不冲突 */
+.header-container:hover .header:nth-child(2) {
+  color: rgba(255, 0, 80, 0.55);
+  transform: translateX(3px);
+}
+
+.header-container:hover .header:nth-child(3) {
+  color: rgba(0, 200, 255, 0.55);
+  transform: translateX(-3px);
+}
+
 .container {
   position: relative;
   width: 45rem;
@@ -348,10 +463,17 @@ onMounted(() => {
 .poker .vertical-text span {
   font-size: 10vmin;
   font-weight: 900;
-  color: #fff;
-  text-shadow: 0 0 1vmin rgba(0, 0, 0, 0.5);
+  /* 浅色模式牌面为白色，文字用黑色保证可读 */
+  color: #17222c;
+  text-shadow: 0 0 1vmin rgba(255, 255, 255, 0.45);
   line-height: 1;
   display: block;
+}
+
+/* 深色模式覆盖为白字：作用域只给末段 span 加 [data-v]，.dark(html) 作为祖先限定符直接可用 */
+.dark .poker .vertical-text span {
+  color: #fff;
+  text-shadow: 0 0 1vmin rgba(0, 0, 0, 0.5);
 }
 
 .poker_top {

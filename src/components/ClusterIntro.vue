@@ -20,6 +20,11 @@ import type { ClusterIntroHandle } from '../utils/clusterIntro'
  *
  * 本组件动态 import clusterIntro.ts（含 three/webgpu，体积大），只在需要时加载。
  */
+const props = defineProps<{
+  /** intro：开场流程；return：回归流程（首帧满屏马赛克，反向拼回小球） */
+  mode?: 'intro' | 'return'
+}>()
+
 const emit = defineEmits<{
   (e: 'ready'): void
   (e: 'reveal'): void
@@ -48,6 +53,7 @@ onMounted(async () => {
     }
 
     handle = await mod.createClusterIntro(mount.value, {
+      mode: props.mode ?? 'intro',
       onReady: () => {
         if (disposed) return
         emit('ready')

@@ -56,7 +56,7 @@
                 class="swing-capsule"
                 :class="{ 'is-latched': swingLatched !== 0 }"
                 role="slider"
-                aria-label="音乐摆锤：左右拖动调节音量，拖到两端关闭，轻点切换播放"
+                aria-label="音乐摆锤：左右拖动调节音量，拖入两端底座关闭，拖回中间恢复播放"
                 aria-valuemin="0"
                 aria-valuemax="100"
                 :aria-valuenow="volumePct"
@@ -65,12 +65,7 @@
                 @pointerup="onCapsulePointerUp"
                 @pointercancel="onCapsulePointerUp"
               >
-                <svg v-if="!isPlaying" class="capsule-icon" width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M8 5v14l11-7z"/>
-                </svg>
-                <svg v-else class="capsule-icon" width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M6 6h12v12H6z"/>
-                </svg>
+                <!-- 内部仅有音量填充指示（::after 随 --vol 增减），无播放/暂停图标 -->
               </div>
             </div>
           </div>
@@ -231,10 +226,11 @@ const toggleAudio = async () => {
 
 // ---------- 音量摆锤：珠串式胶囊在头像圆内水平滑动 ----------
 // 模型：阻尼水平弹簧振子（x 为偏离圆心的水平位移）。胶囊沿水平直径滑动，
-// 两条线从胶囊上下端沿径向延伸到圆框（居中时共线成竖直直径，偏移时 V 形张开）。
+// 两条弹弓线固定锚在圆框正上/正下，拖离中心时绷紧拉长；
+// 圆框左右外侧各有括号形磁吸底座，拖到尽头骑跨圆缘入座锁定。
 // 拖拽时 x 跟随指针并即时映射音量 vol = 1 - |x|/xMax（居中最响，向两缘递减）；
-// 松手超过阈值锁定到边缘并暂停，松手中途则带惯性来回摆动；轻点 = 播放/暂停切换；
-// 从边缘拖回中间自动恢复播放。
+// 松手超过阈值锁定到边缘并暂停，松手中途则带惯性来回摆动；
+// 从边缘拖回中间自动恢复播放。播放/暂停全部由拖拽物理承担，无轻点开关。
 const swingHost = ref(null)
 const capsuleRef = ref(null)
 const lineLRef = ref(null)
@@ -263,10 +259,6 @@ let swingRafId = 0
 let lastSwingT = 0
 let grabDX = 0 // 按下时指针水平位置与胶囊位移的差值：相对拖拽基准
 const velHist = [] // 最近 ~120ms 的位移轨迹，松手时估算拽动方向与惯性
-let downX = 0
-let downY = 0
-let downT = 0
-let dragMoved = false
 
 function volumeFromX() {
   return clamp01(1 - Math.abs(posX) / swingXMax)
@@ -408,10 +400,6 @@ function onCapsulePointerDown(e) {
   swingDragging.value = true
   velX = 0
   velHist.length = 0
-  downX = e.clientX
-  downY = e.clientY
-  downT = performance.now()
-  dragMoved = false
   // 记住按下时指针与胶囊的偏差，之后只按拖动方向/距离移动胶囊
   const wrapper = swingHost.value?.parentElement
   if (wrapper) {
@@ -422,7 +410,6 @@ function onCapsulePointerDown(e) {
 
 function onCapsulePointerMove(e) {
   if (!swingDragging.value) return
-  if (Math.hypot(e.clientX - downX, e.clientY - downY) > 6) dragMoved = true
   xFromPointer(e)
   // 记录最近 ~120ms 的位移轨迹，松手时用窗口首尾差估算惯性
   const now = performance.now()
@@ -445,20 +432,6 @@ function onCapsulePointerMove(e) {
 function onCapsulePointerUp() {
   if (!swingDragging.value) return
   swingDragging.value = false
-
-  const isTap = !dragMoved && performance.now() - downT < 400
-  if (isTap) {
-    // 轻点：锁定态 → 解锁回中并播放；否则切换播放/暂停
-    if (swingLatched.value !== 0) {
-      swingLatched.value = 0
-      void ensurePlaying()
-    } else if (isPlaying.value) {
-      pauseAudio()
-    } else {
-      void ensurePlaying()
-    }
-    return
-  }
 
   velX = releaseVelocity()
   if (Math.abs(posX) >= swingXMax * SWING.xOff) {
@@ -807,6 +780,10 @@ const scrollToSection = (sectionId) => {
   z-index: 2;
   overflow: visible;
 
+  /* 紧凑上限：卡片贴住内容，宽屏不再拉满，窄屏仍随视口铺开 */
+  max-width: 860px;
+  margin-inline: auto;
+
   /* 液态玻璃框：磨砂底 + 半透明渐变 + 光泽高光边 + 悬浮投影 */
   padding: 3rem 3.5rem;
   border-radius: 36px;
@@ -1114,7 +1091,7 @@ const scrollToSection = (sectionId) => {
   transition: opacity 0.15s ease;
 }
 
-/* 关闭（暂停）态：整体降亮度但保留色彩——停靠位置必须看得清，播放/暂停由图标表达 */
+/* 关闭（暂停）态：整体降亮度但保留色彩——停靠位置必须看得清；播放/暂停由亮度与停靠位置表达 */
 .swing-volume.is-off .swing-capsule {
   background: rgba(0, 180, 216, 0.1);
   border-color: rgba(0, 180, 216, 0.4);
@@ -1132,14 +1109,6 @@ const scrollToSection = (sectionId) => {
 
 .swing-volume.is-off .swing-dock.is-seated {
   filter: drop-shadow(0 0 5px rgba(0, 180, 216, 0.5));
-}
-
-.capsule-icon {
-  color: #fff;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4));
-  position: relative;
-  z-index: 1;
-  pointer-events: none;
 }
 
 /* 深色模式摆锤 */

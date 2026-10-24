@@ -1,72 +1,72 @@
 <template>
-  <header class="header">
-    <div class="scroll-progress" :style="{ width: scrollProgress + '%' }"></div>
-    <nav class="nav container">
-      <div class="logo">
-        <RouterLink to="/" class="logo-text">{{ poemContent || 'ContinueYN' }}</RouterLink>
-      </div>
-      
-      <ul class="nav-links">
-        <li><router-link to="/" class="nav-link">首页</router-link></li>
-        <li><a href="#about" class="nav-link" @click.prevent="scrollToSection('#about')">关于</a></li>
-        <li><a href="#skills" class="nav-link" @click.prevent="scrollToSection('#skills')">技能</a></li>
-        <li><a href="#projects" class="nav-link" @click.prevent="scrollToSection('#projects')">项目</a></li>
-        <li><a href="#contact" class="nav-link" @click.prevent="scrollToSection('#contact')">联系</a></li>
-        <li><router-link to="/blog" class="nav-link">文章</router-link></li>
-      </ul>
-      
-      <div class="nav-actions">
-        <button @click="handleThemeToggle" class="theme-toggle" aria-label="切换主题" :class="{ 'animating': isAnimating }">
+  <header class="header" :class="{ scrolled: isScrolled }">
+
+    <!-- 液态玻璃 dock：初始仅一枚无背景的主题圆钮悬于顶部中心；
+         指针进入后玻璃底浮现并向两侧延展出标签（左三右三夹住圆钮），
+         下方再垂下一块液态玻璃面板展示诗句；
+         滚动进度以圆环形式绕主题圆钮绘制 -->
+    <nav
+      class="nav-dock"
+      :class="{ open: dockOpen }"
+      @pointerenter="onDockPointerEnter"
+      @pointerleave="onDockPointerLeave"
+      @focusin="dockOpen = true"
+      @focusout="onDockFocusOut"
+    >
+      <div class="dock-bar">
+        <div class="dock-group left">
+          <RouterLink to="/" class="dock-link" @click="onHomeClick">首页</RouterLink>
+          <a href="#about" class="dock-link" @click.prevent="goSection('#about')">关于</a>
+          <a href="#skills" class="dock-link" @click.prevent="goSection('#skills')">技能</a>
+        </div>
+
+        <button
+          @click="onThemeClick"
+          @pointerdown="onThemePointerDown"
+          class="theme-toggle"
+          aria-label="切换主题"
+          :class="{ 'animating': isAnimating }"
+        >
+          <svg class="progress-ring" viewBox="0 0 100 100" aria-hidden="true">
+            <defs>
+              <linearGradient id="dockRingGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" class="ring-stop-a" />
+                <stop offset="55%" class="ring-stop-b" />
+                <stop offset="100%" class="ring-stop-c" />
+              </linearGradient>
+            </defs>
+            <circle class="ring-track" cx="50" cy="50" r="46" />
+            <circle class="ring-fill" cx="50" cy="50" r="46" :style="ringStyle" />
+          </svg>
           <div class="theme-icon-image">
             <img :src="currentIcon" :alt="isDark ? '切换到日间模式' : '切换到夜间模式'" class="theme-icon current" loading="lazy">
             <img :src="isDark ? lightIcon : darkIcon" :alt="isDark ? '日间模式' : '夜间模式'" class="theme-icon next" loading="lazy">
           </div>
         </button>
-        
-        <button 
-          @click="scrollToTop" 
-          class="back-to-top" 
-          aria-label="回到顶部" 
-          :class="{ 'show': showBackToTop }"
-        >
-          <div class="back-to-top-content">
-            <div class="sakura-petal petal-1"></div>
-            <div class="sakura-petal petal-2"></div>
-            <div class="sakura-petal petal-3"></div>
-            <div class="star-icon">✦</div>
-            <ArrowUp size="20" class="arrow-icon" />
+
+        <div class="dock-group right">
+          <a href="#projects" class="dock-link" @click.prevent="goSection('#projects')">项目</a>
+          <a href="#contact" class="dock-link" @click.prevent="goSection('#contact')">联系</a>
+          <RouterLink to="/blog" class="dock-link" @click="onNavLink">文章</RouterLink>
+        </div>
+      </div>
+
+      <div class="dock-panel">
+        <div class="dock-panel-inner">
+          <div class="dock-panel-card">
+            <span class="poem-mark" aria-hidden="true">「</span>
+            <p class="dock-poem">{{ poemContent || '行到水穷处，坐看云起时' }}</p>
+            <span class="poem-mark" aria-hidden="true">」</span>
           </div>
-          <div class="back-to-top-glow"></div>
-        </button>
-        
-        <button class="mobile-menu-btn" @click="toggleMobileMenu" aria-label="切换菜单" :class="{ open: mobileMenuOpen }">
-          <span></span>
-          <span></span>
-          <span></span>
-        </button>
+        </div>
       </div>
     </nav>
-    
-    <Transition name="menu-backdrop">
-      <div v-if="mobileMenuOpen" class="mobile-menu-backdrop" @click="closeMobileMenu()"></div>
-    </Transition>
-    <Transition name="menu-drop">
-      <div v-if="mobileMenuOpen" class="mobile-menu">
-        <router-link to="/" class="mobile-nav-link" @click="closeMobileMenu()">首页</router-link>
-        <a href="#about" class="mobile-nav-link" @click.prevent="() => { scrollToSection('#about'); closeMobileMenu(); }">关于</a>
-        <a href="#skills" class="mobile-nav-link" @click.prevent="() => { scrollToSection('#skills'); closeMobileMenu(); }">技能</a>
-        <a href="#projects" class="mobile-nav-link" @click.prevent="() => { scrollToSection('#projects'); closeMobileMenu(); }">项目</a>
-        <a href="#contact" class="mobile-nav-link" @click.prevent="() => { scrollToSection('#contact'); closeMobileMenu(); }">联系</a>
-        <router-link to="/blog" class="mobile-nav-link" @click="closeMobileMenu()">博客</router-link>
-      </div>
-    </Transition>
   </header>
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { RouterLink } from 'vue-router'
-import { ArrowUp } from 'lucide-vue-next'
 
 // 导入图片
 import lightIcon from '../assets/images/light.png'
@@ -96,49 +96,105 @@ const props = defineProps({
 
 const emit = defineEmits(['toggle-theme'])
 
-const mobileMenuOpen = ref(false)
+const dockOpen = ref(false)
 const poemContent = ref('')
 const isAnimating = ref(false)
-const showBackToTop = ref(false)
 const scrollProgress = ref(0)
+const isScrolled = ref(false)
+
+// 是否支持 hover：决定交互模型（悬停展开 vs 点按展开）
+const canHover = ref(true)
+let dockEl = null
 
 // 计算当前显示的图标
 const currentIcon = computed(() => {
   return props.isDark ? darkIcon : lightIcon
 })
 
+// 滚动进度圆环：绕主题圆钮一圈，dashoffset 随进度缩短
+const RING_C = 2 * Math.PI * 46
+const ringStyle = computed(() => ({
+  strokeDasharray: `${RING_C}`,
+  strokeDashoffset: `${RING_C * (1 - scrollProgress.value / 100)}`
+}))
+
+// ---------- dock 交互 ----------
+// 指针设备：圆钮点击 = 切主题，展开交给 hover / 键盘焦点；
+// 触屏设备：首次点按圆钮 = 展开，展开后再点 = 切主题，点外部 / 点链接 = 收起
+const onThemeClick = () => {
+  if (!canHover.value && !dockOpen.value) {
+    dockOpen.value = true
+    suppressThemeOnce = false
+    return
+  }
+  if (suppressThemeOnce) {
+    // 本次点按只负责展开（focusin 已把 dock 打开），不切主题
+    suppressThemeOnce = false
+    return
+  }
+  handleThemeToggle()
+}
+
+// 触屏首次点按圆钮：pointerdown → focusin（展开）→ click，
+// 用此标记让 click 跳过切主题，只保留展开
+let suppressThemeOnce = false
+
+const onThemePointerDown = (e) => {
+  if (!canHover.value && !dockOpen.value && e.pointerType === 'touch') {
+    suppressThemeOnce = true
+  }
+}
+
+const onDockPointerEnter = (e) => {
+  if (e.pointerType !== 'touch') dockOpen.value = true
+}
+
+const onDockPointerLeave = (e) => {
+  if (e.pointerType !== 'touch') dockOpen.value = false
+}
+
+const onDockFocusOut = (e) => {
+  if (!e.currentTarget.contains(e.relatedTarget)) dockOpen.value = false
+}
+
+const goSection = (sectionId) => {
+  scrollToSection(sectionId)
+  if (!canHover.value) dockOpen.value = false
+}
+
+// 首页标签兼顔回顶职责：已在首页时点击平滑回顶（替代被删除的回顶按钮），
+// 在其他页面则交给路由正常跳转
+const onHomeClick = (e) => {
+  if (window.location.pathname === '/') {
+    e.preventDefault()
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+  if (!canHover.value) dockOpen.value = false
+}
+
+const onNavLink = () => {
+  if (!canHover.value) dockOpen.value = false
+}
+
+// 触屏：点按 dock 之外收起
+const onDocPointerDown = (e) => {
+  if (dockOpen.value && dockEl && !dockEl.contains(e.target)) {
+    dockOpen.value = false
+    suppressThemeOnce = false
+  }
+}
+
 // 修改主题切换处理函数
 const handleThemeToggle = () => {
   if (isAnimating.value) return // 如果正在动画中，不执行
-  
+
   isAnimating.value = true
   emit('toggle-theme')
-  
+
   // 动画持续时间与CSS中保持一致
   setTimeout(() => {
     isAnimating.value = false
   }, 300) // 300ms与CSS transition时间匹配
-}
-
-const toggleMobileMenu = () => {
-  mobileMenuOpen.value = !mobileMenuOpen.value
-}
-
-// 菜单打开时锁定 body 滚动，避免背景跟着滚
-watch(mobileMenuOpen, (open) => {
-  document.body.style.overflow = open ? 'hidden' : ''
-})
-
-const closeMobileMenu = () => {
-  mobileMenuOpen.value = false
-}
-
-// 回到顶部方法
-const scrollToTop = () => {
-  window.scrollTo({
-    top: 0,
-    behavior: 'smooth'
-  })
 }
 
 // 加载诗词
@@ -171,25 +227,10 @@ const loadPoemSDK = () => {
   document.head.appendChild(script)
 }
 
-let headerEl = null
-
 const onScroll = () => {
-  if (headerEl) {
-    if (window.scrollY > 10) {
-      headerEl.classList.add('scrolled')
-    } else {
-      headerEl.classList.remove('scrolled')
-    }
-  }
+  isScrolled.value = window.scrollY > 10
 
-  // 控制回到顶部按钮显示
-  if (window.scrollY > 300) {
-    showBackToTop.value = true
-  } else {
-    showBackToTop.value = false
-  }
-
-  // 计算滚动进度
+  // 计算滚动进度（圆环绕主题圆钮绘制）
   const windowHeight = document.documentElement.scrollHeight - document.documentElement.clientHeight
   const scrolled = (window.scrollY / windowHeight) * 100
   scrollProgress.value = Math.min(100, Math.max(0, scrolled))
@@ -198,15 +239,17 @@ const onScroll = () => {
 onMounted(() => {
   loadPoemSDK()
 
-  headerEl = document.querySelector('.header')
+  canHover.value = window.matchMedia('(hover: hover)').matches
+  dockEl = document.querySelector('.nav-dock')
 
-  // 滚动时添加阴影和控制回到顶部按钮
   window.addEventListener('scroll', onScroll, { passive: true })
+  document.addEventListener('pointerdown', onDocPointerDown)
   onScroll()
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('scroll', onScroll)
+  document.removeEventListener('pointerdown', onDocPointerDown)
 })
 </script>
 
@@ -218,21 +261,9 @@ onBeforeUnmount(() => {
   width: 100%;
   background: transparent;
   z-index: 3000;
-  transition: all 0.3s ease;
-}
-
-.scroll-progress {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  height: 3px;
-  background: var(--gradient-primary);
-  transition: width 0.1s ease-out;
-  box-shadow: var(--shadow-glow);
-}
-
-.header {
   animation: appear 2s ease 0.1s 1 normal backwards;
+  /* 顶栏大部分是透明留白，不拦截下方内容的点击；交互元素各自恢复 */
+  pointer-events: none;
 }
 
 @keyframes appear {
@@ -246,85 +277,193 @@ onBeforeUnmount(() => {
   }
 }
 
-.header.scrolled {
-  box-shadow: var(--shadow);
-  background: var(--glass-bg);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-}
-
-.nav {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 1rem 0;
-}
-
-.logo-text {
-  font-size: 1.2rem;
-  font-weight: 600;
-  text-decoration: none;
-  color: var(--text-primary);
-  font-style: italic;
-  min-height: 1.5em;
-  display: flex;
-  align-items: center;
-}
-
-.nav-links {
-  display: flex;
-  list-style: none;
-  gap: 2rem;
-}
-
-.nav-link {
-  text-decoration: none;
-  color: var(--text-secondary);
-  font-weight: 500;
-  transition: color 0.3s ease;
+/* ---------- dock 容器：宽度和居中都由内容驱动，
+   标签延展时每帧重排 margin auto 始终保持顶部居中，向两边对称生长 ---------- */
+.nav-dock {
   position: relative;
+  width: fit-content;
+  margin: 0.9rem auto 0;
+  pointer-events: auto;
 }
 
-.nav-link:hover {
-  color: var(--primary-color);
-}
-
-.nav-link::after {
-  content: '';
-  position: absolute;
-  bottom: -5px;
-  left: 0;
-  width: 0;
-  height: 2px;
-  background: var(--primary-color);
-  transition: width 0.3s ease;
-}
-
-.nav-link:hover::after {
-  width: 100%;
-}
-
-.nav-actions {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-
-.theme-toggle {
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 0.5rem;
-  border-radius: 50%;
-  transition: background-color 0.3s ease;
+.dock-bar {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 0.3rem;
+  border-radius: 999px;
+  transition: padding 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.nav-dock.open .dock-bar {
+  padding: 0.35rem 1.05rem;
+}
+
+/* 滚动后给收起态一枚淡玻璃小圆片，保证圆钮悬浮在内容上方仍可读；
+   顶部初始（未滚动、未展开）保持完全无背景 */
+.header.scrolled .dock-bar::before {
+  opacity: 0.4;
+}
+
+/* 液态玻璃底：磨砂 + 半透明渐变边 + 高光描边，透明度渐入即"浮现" */
+.dock-bar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(18px) saturate(1.6);
+  backdrop-filter: blur(18px) saturate(1.6);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08),
+              inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  opacity: 0;
+  transition: opacity 0.45s ease;
+  pointer-events: none;
+}
+
+/* 顶部镜面高光：液态玻璃的反光条 */
+.dock-bar::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 12%;
+  right: 12%;
+  height: 34%;
+  border-radius: 999px;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0));
+  opacity: 0;
+  transition: opacity 0.5s ease 0.08s;
+  pointer-events: none;
+}
+
+.nav-dock.open .dock-bar::before {
+  opacity: 1;
+}
+
+.nav-dock.open .dock-bar::after {
+  opacity: 0.6;
+}
+
+/* ---------- 标签：收起时宽度归零（不占位），展开时由内向外逐个弹出 ---------- */
+.dock-group {
+  display: flex;
+  align-items: center;
+}
+
+.dock-link {
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+  max-width: 0;
+  padding-inline: 0;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+  text-decoration: none;
+  color: var(--text-secondary);
+  font-weight: 500;
+  font-size: 0.95rem;
+  transition:
+    max-width 0.55s cubic-bezier(0.22, 1, 0.36, 1),
+    padding 0.55s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.32s ease,
+    transform 0.55s cubic-bezier(0.22, 1, 0.36, 1),
+    color 0.25s ease;
+}
+
+/* 左侧标签从圆钮方向滑出，右侧镜像，形成"向两边延展"的动势 */
+.dock-group.left .dock-link {
+  transform: translateX(18px);
+}
+
+.dock-group.right .dock-link {
+  transform: translateX(-18px);
+}
+
+.nav-dock.open .dock-link {
+  max-width: 6rem;
+  padding-inline: 0.95rem;
+  opacity: 1;
+  transform: translateX(0);
+  pointer-events: auto;
+}
+
+/* 逐个弹出：紧邻圆钮的先出现，最外侧最后，两侧对称 */
+.nav-dock.open .dock-group.left .dock-link:nth-child(3),
+.nav-dock.open .dock-group.right .dock-link:nth-child(1) {
+  transition-delay: 0.05s, 0.05s, 0.09s, 0.05s, 0s;
+}
+
+.nav-dock.open .dock-group.left .dock-link:nth-child(2),
+.nav-dock.open .dock-group.right .dock-link:nth-child(2) {
+  transition-delay: 0.12s, 0.12s, 0.16s, 0.12s, 0s;
+}
+
+.nav-dock.open .dock-group.left .dock-link:nth-child(1),
+.nav-dock.open .dock-group.right .dock-link:nth-child(3) {
+  transition-delay: 0.19s, 0.19s, 0.23s, 0.19s, 0s;
+}
+
+.nav-dock.open .dock-link:hover {
+  color: var(--primary-color);
+}
+
+/* ---------- 主题圆钮：收起态的主角 ---------- */
+.theme-toggle {
+  position: relative;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.4rem;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: transform 0.3s ease;
 }
 
 .theme-toggle:hover {
-  background: var(--bg-secondary);
+  transform: scale(1.1);
 }
+
+/* 滚动进度圆环：绕圆钮一圈，从 12 点方向顺时针增长；
+   底轨保持极淡，滚动时渐变弧线覆盖上来 */
+.progress-ring {
+  position: absolute;
+  inset: -6px;
+  width: calc(100% + 12px);
+  height: calc(100% + 12px);
+  transform: rotate(-90deg);
+  pointer-events: none;
+  overflow: visible;
+}
+
+.progress-ring circle {
+  fill: none;
+  stroke-width: 4;
+}
+
+.ring-track {
+  stroke: var(--primary-color);
+  opacity: 0.14;
+}
+
+.ring-fill {
+  stroke: url(#dockRingGrad);
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.15s linear;
+}
+
+.ring-stop-a { stop-color: #0e9f8e; }
+.ring-stop-b { stop-color: #22c3a6; }
+.ring-stop-c { stop-color: #f6b93b; }
+
+.dark .ring-stop-a { stop-color: #8b5cf6; }
+.dark .ring-stop-b { stop-color: #a78bfa; }
+.dark .ring-stop-c { stop-color: #fbbf24; }
 
 /* 主题切换按钮动画状态 */
 .theme-toggle.animating {
@@ -369,7 +508,6 @@ onBeforeUnmount(() => {
 }
 
 .theme-toggle:hover .theme-icon.current {
-  /* 效果：旋转和缩放 */
   transform: scale(1.2) rotate(15deg);
   filter: brightness(0.4) contrast(1.2);
 }
@@ -391,370 +529,149 @@ onBeforeUnmount(() => {
   transform: scale(1.5);
 }
 
-/* 回到顶部按钮 - 二次元风格 */
-.back-to-top {
-  position: relative;
-  background: linear-gradient(135deg, #ffb7c5, #ff9eb5);
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  cursor: pointer;
-  padding: 0.75rem;
-  border-radius: 50%;
-  transition: all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+/* ---------- 诗句面板：从横条下方"滴落"的液态玻璃 ----------
+   grid 0fr→1fr 撑开高度；卡片自带 margin-top 的空隙
+   属于 hover 容器的盒子，指针从横条移到面板不会中途收起 */
+.dock-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.14s;
+}
+
+.nav-dock.open .dock-panel {
+  grid-template-rows: 1fr;
+}
+
+.dock-panel-inner {
+  min-height: 0;
+  overflow: hidden;
   display: flex;
-  align-items: center;
   justify-content: center;
-  opacity: 0;
-  transform: translateY(20px) scale(0.8);
-  pointer-events: none;
-  color: white;
-  box-shadow: 0 5px 20px rgba(255, 183, 197, 0.4),
-              0 0 30px rgba(255, 183, 197, 0.2);
-  overflow: visible;
-  width: 50px;
-  height: 50px;
 }
 
-.back-to-top.show {
-  opacity: 1;
-  transform: translateY(0) scale(1);
-  pointer-events: auto;
-}
-
-.back-to-top-content {
+.dock-panel-card {
   position: relative;
-  width: 100%;
-  height: 100%;
+  margin-top: 0.6rem;
+  max-width: min(78vw, 620px);
+  padding: 0.85rem 1.7rem;
+  border-radius: 22px;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(22px) saturate(1.5);
+  backdrop-filter: blur(22px) saturate(1.5);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 6px 22px rgba(15, 23, 42, 0.1),
+              inset 0 1px 0 rgba(255, 255, 255, 0.3);
   display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: center;
-  z-index: 2;
-}
-
-/* 樱花花瓣装饰 */
-.sakura-petal {
-  position: absolute;
-  width: 8px;
-  height: 8px;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.8), rgba(255, 183, 197, 0.6));
-  border-radius: 50% 0 50% 50%;
+  gap: 0.4rem;
+  transform-origin: 50% 0;
   opacity: 0;
-  pointer-events: none;
+  transform: translateY(-12px) scaleY(0.92);
+  filter: blur(5px);
+  transition:
+    opacity 0.4s ease 0.18s,
+    transform 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.18s,
+    filter 0.45s ease 0.18s;
 }
 
-.petal-1 {
-  top: -5px;
-  left: -5px;
-  transform: rotate(-30deg);
-  animation: petal-float 3s ease-in-out infinite;
-}
-
-.petal-2 {
-  top: -5px;
-  right: -5px;
-  transform: rotate(30deg);
-  animation: petal-float 3s ease-in-out infinite 0.5s;
-}
-
-.petal-3 {
-  bottom: -5px;
-  left: 50%;
-  transform: translateX(-50%) rotate(60deg);
-  animation: petal-float 3s ease-in-out infinite 1s;
-}
-
-@keyframes petal-float {
-  0%, 100% {
-    opacity: 0.6;
-    transform: translateY(0) rotate(var(--r, 0deg));
-  }
-  50% {
-    opacity: 1;
-    transform: translateY(-5px) rotate(var(--r, 10deg));
-  }
-}
-
-/* 星星图标 */
-.star-icon {
-  position: absolute;
-  top: -8px;
-  right: -8px;
-  font-size: 14px;
-  color: #fff;
-  text-shadow: 0 0 10px rgba(255, 255, 255, 0.8);
-  animation: star-twinkle 2s ease-in-out infinite;
-}
-
-@keyframes star-twinkle {
-  0%, 100% {
-    opacity: 0.4;
-    transform: scale(1) rotate(0deg);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1.3) rotate(180deg);
-  }
-}
-
-/* 箭头图标 */
-.arrow-icon {
-  transition: transform 0.3s ease;
-  filter: drop-shadow(0 2px 4px rgba(255, 255, 255, 0.3));
-}
-
-/* 光晕效果 */
-.back-to-top-glow {
-  position: absolute;
-  top: -50%;
-  left: -50%;
-  width: 200%;
-  height: 200%;
-  background: radial-gradient(circle, rgba(255, 183, 197, 0.3) 0%, transparent 70%);
-  opacity: 0;
-  transition: opacity 0.4s ease;
-  pointer-events: none;
-  z-index: 1;
-}
-
-.back-to-top:hover {
-  background: linear-gradient(135deg, #ffcce6, #ffb3d1);
-  transform: translateY(-5px) scale(1.05);
-  box-shadow: 0 10px 35px rgba(255, 183, 197, 0.6),
-              0 0 50px rgba(255, 183, 197, 0.4),
-              inset 0 0 20px rgba(255, 255, 255, 0.2);
-  border-color: rgba(255, 255, 255, 0.5);
-}
-
-.back-to-top:hover .back-to-top-glow {
+.nav-dock.open .dock-panel-card {
   opacity: 1;
+  transform: none;
+  filter: none;
 }
 
-.back-to-top:hover .arrow-icon {
-  transform: translateY(-3px);
-}
-
-.back-to-top:hover .sakura-petal {
-  opacity: 1;
-  animation-duration: 1.5s;
-}
-
-.back-to-top:active {
-  transform: translateY(-2px) scale(0.95);
-  box-shadow: 0 5px 20px rgba(255, 183, 197, 0.4);
-}
-
-.back-to-top:active .arrow-icon {
-  transform: translateY(-1px);
-}
-
-/* 点击波纹效果 */
-.back-to-top::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 0;
-  height: 0;
-  background: radial-gradient(circle, rgba(255, 255, 255, 0.5), transparent);
-  border-radius: 50%;
-  transform: translate(-50%, -50%);
-  transition: width 0.6s ease, height 0.6s ease;
-  opacity: 0;
-}
-
-.back-to-top:active::after {
-  width: 150px;
-  height: 150px;
-  opacity: 0;
-  transition: width 0s, height 0s, opacity 0.6s ease;
-}
-
-.mobile-menu-btn {
-  display: none;
-  flex-direction: column;
-  background: none;
-  border: none;
-  cursor: pointer;
-  gap: 4px;
-}
-
-.mobile-menu-btn span {
-  width: 20px;
-  height: 2px;
-  background: var(--text-primary);
-  transition: all 0.3s ease;
-}
-
-.mobile-menu {
-  display: none;
-  flex-direction: column;
-  background: var(--bg-primary);
-  border-top: 1px solid var(--border-color);
-  padding: 1rem;
-}
-
-.mobile-nav-link {
-  padding: 0.75rem 0;
-  text-decoration: none;
+.dock-poem {
+  margin: 0;
+  font-size: 1.02rem;
+  letter-spacing: 0.12em;
+  line-height: 1.7;
+  text-align: center;
   color: var(--text-primary);
-  border-bottom: 1px solid var(--border-color);
-  transition: color 0.3s ease;
+  font-family: 'Kaiti SC', 'STKaiti', 'KaiTi', 'Noto Serif SC', serif;
 }
 
-.mobile-nav-link:hover {
+.poem-mark {
   color: var(--primary-color);
+  font-size: 0.9rem;
+  opacity: 0.8;
+  font-family: 'Kaiti SC', 'STKaiti', 'KaiTi', 'Noto Serif SC', serif;
 }
 
+/* ---------- 深色模式 ---------- */
+.dark .dock-bar::before {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28),
+              inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.dark .dock-bar::after {
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0.26), rgba(255, 255, 255, 0));
+}
+
+.dark .dock-panel-card {
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.3),
+              inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+/* ---------- 移动端：dock 改为纵向堆叠（圆钮在上，标签两行三列），点按展开 ---------- */
 @media (max-width: 768px) {
-  .nav-links {
-    display: none;
-  }
-  
-  .mobile-menu-btn {
-    display: flex;
-    width: 20px;
-    height: 14px;
-    padding: 0;
+  .nav-dock {
+    margin-top: 0.6rem;
   }
 
-  .mobile-menu-btn span {
-    transition: all 0.45s cubic-bezier(0.68, -0.55, 0.265, 1.55);
-  }
-
-  /* 展开状态：三条横线折叠成朝左的三角形 ◀ */
-  .mobile-menu-btn.open span:nth-child(1) {
-    transform: translateY(2.5px) rotate(-19.3deg);
-  }
-
-  .mobile-menu-btn.open span:nth-child(2) {
-    transform: translateX(9px) rotate(90deg) scaleX(0.7);
-  }
-
-  .mobile-menu-btn.open span:nth-child(3) {
-    transform: translateY(-2.5px) rotate(19.3deg);
-  }
-
-  /* 提升为独立合成层，规避 iOS 上 fixed + backdrop-filter 的滚动错位 */
-  .header {
-    transform: translateZ(0);
-  }
-
-  /* logo 占满剩余空间，诗句尽量完整显示 */
-  .logo {
-    flex: 1 1 0%;
-    min-width: 0;
-  }
-
-  .logo-text {
-    display: block;
-    font-size: clamp(0.82rem, 4.6vw, 1rem);
-    line-height: 1.5;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: none;
-  }
-
-  /* 回到顶部按钮在移动端隐藏：
-     否则它常驻占位会挤压 logo 与按钮，滚动到 300px 后还会在
-     主题按钮与汉堡包之间凭空多出一个按钮，造成导航"被压进去" */
-  .back-to-top {
-    display: none;
-  }
-
-  /* 按钮组不收缩，挤占由 logo 让出；与汉堡包贴紧 */
-  .nav-actions {
-    flex-shrink: 0;
-    gap: 0.5rem;
-  }
-
-  /* 导航本身可收缩，避免内容把导航栏撑宽 */
-  .nav {
-    min-width: 0;
-  }
-
-  /* 下拉菜单：毛玻璃面板，从顶栏下方滑入 */
-  .mobile-menu {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    right: 0;
-    display: flex;
+  .dock-bar {
     flex-direction: column;
-    z-index: 2900;
-    background: var(--glass-bg);
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
-    border-top: 1px solid var(--border-color);
-    box-shadow: var(--shadow-lg);
-    padding: 0.75rem 1.5rem 1rem;
-    max-height: calc(100dvh - 4rem);
-    max-height: calc(100vh - 4rem);
-    overflow-y: auto;
+    border-radius: 30px;
   }
 
-  /* 点击遮罩：关闭菜单 */
-  .mobile-menu-backdrop {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    z-index: 2800;
-    background: rgba(0, 0, 0, 0.35);
-    backdrop-filter: blur(2px);
-    -webkit-backdrop-filter: blur(2px);
+  /* 圆钮置顶，两组标签在其下各占一行、居中换行 */
+  .dock-bar .theme-toggle {
+    order: -1;
   }
 
-  /* 菜单容器：下滑 + 淡入 */
-  .menu-drop-enter-active,
-  .menu-drop-leave-active {
-    transition: opacity 0.35s ease, transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  .dock-group {
+    flex-wrap: wrap;
+    justify-content: center;
   }
 
-  .menu-drop-enter-from,
-  .menu-drop-leave-to {
-    opacity: 0;
-    transform: translateY(-14px);
+  .dock-group .dock-link {
+    font-size: 0.92rem;
   }
 
-  /* 遮罩：淡入淡出 */
-  .menu-backdrop-enter-active,
-  .menu-backdrop-leave-active {
-    transition: opacity 0.3s ease;
+  .nav-dock.open .dock-group .dock-link {
+    max-width: 5.5rem;
+    padding-inline: 0.55rem;
   }
 
-  .menu-backdrop-enter-from,
-  .menu-backdrop-leave-to {
-    opacity: 0;
+  .nav-dock.open .dock-bar {
+    padding: 0.45rem 0.7rem;
   }
 
-  /* 菜单链接逐个淡入 */
-  .menu-drop-enter-active .mobile-nav-link {
-    animation: menuLinkIn 0.45s ease both;
+  .dock-panel-card {
+    padding: 0.7rem 1.1rem;
+    border-radius: 18px;
   }
 
-  .menu-drop-enter-active .mobile-nav-link:nth-child(1) { animation-delay: 0.04s; }
-  .menu-drop-enter-active .mobile-nav-link:nth-child(2) { animation-delay: 0.09s; }
-  .menu-drop-enter-active .mobile-nav-link:nth-child(3) { animation-delay: 0.14s; }
-  .menu-drop-enter-active .mobile-nav-link:nth-child(4) { animation-delay: 0.19s; }
-  .menu-drop-enter-active .mobile-nav-link:nth-child(5) { animation-delay: 0.24s; }
-  .menu-drop-enter-active .mobile-nav-link:nth-child(6) { animation-delay: 0.29s; }
-
-  @keyframes menuLinkIn {
-    from {
-      opacity: 0;
-      transform: translateY(-8px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
+  .dock-poem {
+    font-size: 0.92rem;
   }
-  
-  /* 移动端调整图标大小：贴合汉堡包、保持可点 */
+
   .theme-icon-image {
     width: 28px;
     height: 28px;
+  }
+}
+
+/* 减少动态：所有 dock 过渡就近乎瞬时完成 */
+@media (prefers-reduced-motion: reduce) {
+  .dock-bar,
+  .dock-bar::before,
+  .dock-bar::after,
+  .dock-link,
+  .dock-panel,
+  .dock-panel-card {
+    transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
   }
 }
 </style>

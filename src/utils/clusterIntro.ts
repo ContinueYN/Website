@@ -333,8 +333,20 @@ export async function createClusterIntro(
     const fov = (camera.fov * Math.PI) / 180
     const worldH = 2 * Math.tan(fov / 2) * camera.position.z
     const worldW = worldH * aspect
-    const cols = Math.max(1, Math.round(Math.sqrt(half * aspect)))
-    const rows = Math.ceil(half / cols)
+    // cols 必须整除 half：rows=half/cols 才能整除，否则最后一行缺菱形，
+    // 右下角露出覆盖层黑底（如宽高比≈2 的最大化浏览器窗口会算出 9×5，缺 5 块）。
+    // 在 half 的因子里选 cols/rows 最接近 aspect 的一组，保持格子接近正方形。
+    let cols = 1
+    let bestScore = Infinity
+    for (let d = 1; d <= half; d++) {
+      if (half % d !== 0) continue
+      const score = Math.abs(Math.log(d / (half / d) / aspect))
+      if (score < bestScore) {
+        bestScore = score
+        cols = d
+      }
+    }
+    const rows = half / cols
     const cellW = worldW / cols
     const cellH = worldH / rows
     const cellSize = Math.max(cellW, cellH) * 1.06
@@ -498,6 +510,12 @@ export async function createClusterIntro(
     camera.aspect = w / h
     camera.updateProjectionMatrix()
     renderer.setSize(w, h)
+    // 平铺开始后视口尺寸变化：按新尺寸重建网格目标并按当前进度重铺，
+    // 否则马赛克仍按旧视口铺放，边缘会露出黑底
+    if (state === 'flatten' || state === 'done') {
+      buildGridTargets()
+      if (flattenProgress) applyFlatten(flattenProgress.p)
+    }
   })
   resizeObserver.observe(container)
 

@@ -37,23 +37,42 @@
         </div>
 
         <div class="hero-visual">
-          <div class="avatar-wrapper">
+          <div class="avatar-wrapper" @dragstart.prevent>
             <canvas ref="waveCanvas" class="wave-canvas"></canvas>
             <div class="avatar" ref="avatarElement">
-              <img src="@/assets/images/user.webp" alt="个人头像" fetchpriority="high" />
+              <img src="@/assets/images/user.webp" alt="个人头像" fetchpriority="high" draggable="false" />
             </div>
-            <button class="audio-control" @click="toggleAudio" :class="{ 'playing': isPlaying }">
-              <div class="audio-control-inner">
-                <svg v-if="!isPlaying" class="play-icon" width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+            <!-- 音量摆锤：珠串式胶囊嵌在头像圆内，两条线固定锚在圆框上下，左右拖动调音量，拖入两端磁吸底座关闭 -->
+            <div ref="swingHost" class="swing-volume" :class="{ 'is-dragging': swingDragging, 'is-off': !isPlaying }">
+              <svg class="swing-lines" viewBox="-320 -320 640 640" aria-hidden="true">
+                <!-- 磁吸底座：圆框左右外侧的括号形卡槽（开口朝圆心），胶囊拖到尽头滑出圆缘嵌进去 -->
+                <path ref="dockLRef" class="swing-dock" d=""></path>
+                <path ref="dockRRef" class="swing-dock" d=""></path>
+                <line ref="lineLRef" class="swing-line" x1="0" y1="0" x2="0" y2="0"></line>
+                <line ref="lineRRef" class="swing-line" x1="0" y1="0" x2="0" y2="0"></line>
+              </svg>
+              <div
+                ref="capsuleRef"
+                class="swing-capsule"
+                :class="{ 'is-latched': swingLatched !== 0 }"
+                role="slider"
+                aria-label="音乐摆锤：左右拖动调节音量，拖到两端关闭，轻点切换播放"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                :aria-valuenow="volumePct"
+                @pointerdown="onCapsulePointerDown"
+                @pointermove="onCapsulePointerMove"
+                @pointerup="onCapsulePointerUp"
+                @pointercancel="onCapsulePointerUp"
+              >
+                <svg v-if="!isPlaying" class="capsule-icon" width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M8 5v14l11-7z"/>
                 </svg>
-                <svg v-else class="pause-icon" width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                <svg v-else class="capsule-icon" width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M6 6h12v12H6z"/>
                 </svg>
               </div>
-              <div class="audio-control-ring"></div>
-              <div class="audio-control-glow"></div>
-            </button>
+            </div>
           </div>
         </div>
       </div>
@@ -171,6 +190,11 @@ onMounted(() => {
   // 起笔时刻由 updateCalligraphy 检测遮罩卸载后决定
   initCalligraphyStrokes()
   calligraphyLoop()
+
+  // 音量摆锤：按头像尺寸初始化几何，启动物理循环
+  updateSwingGeometry()
+  lastSwingT = performance.now()
+  swingLoop()
   
   const observer = new IntersectionObserver((entries, obs) => {
     entries.forEach(entry => {
@@ -197,13 +221,257 @@ const toggleAudio = async () => {
   if (!audioContext) {
     await initAudio()
   }
-  
+
   if (isPlaying.value) {
     pauseAudio()
   } else {
-    playAudio()
+    await playAudio()
   }
 }
+
+// ---------- 音量摆锤：珠串式胶囊在头像圆内水平滑动 ----------
+// 模型：阻尼水平弹簧振子（x 为偏离圆心的水平位移）。胶囊沿水平直径滑动，
+// 两条线从胶囊上下端沿径向延伸到圆框（居中时共线成竖直直径，偏移时 V 形张开）。
+// 拖拽时 x 跟随指针并即时映射音量 vol = 1 - |x|/xMax（居中最响，向两缘递减）；
+// 松手超过阈值锁定到边缘并暂停，松手中途则带惯性来回摆动；轻点 = 播放/暂停切换；
+// 从边缘拖回中间自动恢复播放。
+const swingHost = ref(null)
+const capsuleRef = ref(null)
+const lineLRef = ref(null)
+const lineRRef = ref(null)
+const dockLRef = ref(null)
+const dockRRef = ref(null)
+const swingDragging = ref(false)
+const swingLatched = ref(0) // -1=锁在左缘 0=未锁 1=锁在右缘
+const volumePct = ref(100)
+
+const SWING = {
+  xOff: 0.85, // 松手超过 85% 行程判定为「拖入底座」→ 关闭
+  halfLen: 27, // 胶囊半长（与 CSS 尺寸 54px 对应）
+  tiltMax: 10, // 拉离中心时的最大倾角（度，被线拽向中心的姿态）
+  dockIn: 8, // 底座卡臂探入圆内的深度（贴住圆缘）
+  dockOut: 15, // 底座背板到圆缘外侧的距离
+  dockY: 35, // 底座上下卡臂的半距（比胶囊半长略宽，留入座余量）
+  w0: 5.2, // 固有角频率 → 摆动周期约 1.2s
+  damp: 1.1, // 阻尼：摆两三个来回后稳住
+}
+let posX = 0 // 当前水平位移
+let velX = 0 // 水平速度
+let swingR = 165 // 头像半径
+let swingXMax = 137 // 滑动半行程
+let swingRafId = 0
+let lastSwingT = 0
+let grabDX = 0 // 按下时指针水平位置与胶囊位移的差值：相对拖拽基准
+const velHist = [] // 最近 ~120ms 的位移轨迹，松手时估算拽动方向与惯性
+let downX = 0
+let downY = 0
+let downT = 0
+let dragMoved = false
+
+function volumeFromX() {
+  return clamp01(1 - Math.abs(posX) / swingXMax)
+}
+
+function applyVolume() {
+  const v = volumeFromX()
+  volumePct.value = Math.round(v * 100)
+  capsuleRef.value?.style.setProperty('--vol', `${v}`)
+  if (audioElement) audioElement.volume = v
+  return v
+}
+
+function setLine(el, x1, y1, x2, y2) {
+  el.setAttribute('x1', x1.toFixed(1))
+  el.setAttribute('y1', y1.toFixed(1))
+  el.setAttribute('x2', x2.toFixed(1))
+  el.setAttribute('y2', y2.toFixed(1))
+}
+
+function renderSwing() {
+  const cap = capsuleRef.value
+  if (!cap) return
+  // 接近底座时倾角逐臂归零（卡槽是刚性直槽，入座前竖直对齐）；
+  // 中段则朝圆心微倾（被两条弹弓线拽着的感觉）
+  const prox = Math.abs(posX) / swingXMax
+  const near = clamp01((prox - 0.7) / 0.3)
+  const tilt = -(posX / swingXMax) * SWING.tiltMax * (1 - near)
+  cap.style.transform = `translate(${posX.toFixed(1)}px, 0px) rotate(${tilt.toFixed(1)}deg)`
+  // 上下端点（含倾斜）
+  const rad = (tilt * Math.PI) / 180
+  const sinT = Math.sin(rad)
+  const cosT = Math.cos(rad)
+  const tx = posX - SWING.halfLen * sinT
+  const ty = -SWING.halfLen * cosT
+  const bx = posX + SWING.halfLen * sinT
+  const by = SWING.halfLen * cosT
+  // 弹弓式连线：锚点固定在圆框正上/正下（12/6 点钟），拖离中心时线被绷紧拉长，
+  // 呈拉扯感（而非跟着胶囊滑到同侧），松手回弹的物理方向一目了然
+  if (lineLRef.value) setLine(lineLRef.value, 0, -swingR, tx, ty)
+  if (lineRRef.value) setLine(lineRRef.value, 0, swingR, bx, by)
+
+  // 磁吸底座：越接近对应端越亮（吸引感），停靠后点亮
+  if (dockLRef.value) {
+    dockLRef.value.style.opacity = (0.35 + 0.65 * (posX <= 0 ? near : 0)).toFixed(3)
+    dockLRef.value.classList.toggle('is-seated', swingLatched.value === -1)
+  }
+  if (dockRRef.value) {
+    dockRRef.value.style.opacity = (0.35 + 0.65 * (posX >= 0 ? near : 0)).toFixed(3)
+    dockRRef.value.classList.toggle('is-seated', swingLatched.value === 1)
+  }
+}
+
+function updateSwingGeometry() {
+  const wrapper = swingHost.value?.parentElement
+  if (!wrapper) return
+  swingR = wrapper.clientWidth / 2
+  // 滑轨终点 = 圆缘：胶囊停靠时一半在圆内、一半嵌进圆框外的括号形底座
+  swingXMax = swingR
+  const bi = swingR - SWING.dockIn
+  const bo = swingR + SWING.dockOut
+  const y = SWING.dockY
+  dockLRef.value?.setAttribute(
+    'd',
+    `M ${(-bi).toFixed(1)} ${-y} L ${(-bo).toFixed(1)} ${-y} L ${(-bo).toFixed(1)} ${y} L ${(-bi).toFixed(1)} ${y}`,
+  )
+  dockRRef.value?.setAttribute(
+    'd',
+    `M ${bi.toFixed(1)} ${-y} L ${bo.toFixed(1)} ${-y} L ${bo.toFixed(1)} ${y} L ${bi.toFixed(1)} ${y}`,
+  )
+  renderSwing()
+}
+
+function swingLoop() {
+  const now = performance.now()
+  const dt = Math.min(Math.max((now - lastSwingT) / 1000, 0.001), 0.033)
+  lastSwingT = now
+  if (!swingDragging.value && capsuleRef.value) {
+    if (swingLatched.value !== 0) {
+      // 弹簧吸到锁定边缘，带一点回摆稳住（不许越过滑轨边界）
+      const target = swingLatched.value * swingXMax
+      velX += (-SWING.w0 * SWING.w0 * (posX - target) - SWING.damp * velX) * dt
+      posX += velX * dt
+      if (posX < -swingXMax) {
+        posX = -swingXMax
+        velX = 0
+      } else if (posX > swingXMax) {
+        posX = swingXMax
+        velX = 0
+      }
+    } else {
+      // 阻尼弹簧：松手后按拽动方向的惯性来回摆动，撞到圆缘轻微反弹
+      velX += (-SWING.w0 * SWING.w0 * posX - SWING.damp * velX) * dt
+      posX += velX * dt
+      if (posX < -swingXMax) {
+        posX = -swingXMax
+        velX = Math.abs(velX) * 0.35
+      } else if (posX > swingXMax) {
+        posX = swingXMax
+        velX = -Math.abs(velX) * 0.35
+      }
+      if (Math.abs(posX) < 0.2 && Math.abs(velX) < 5) {
+        posX = 0
+        velX = 0
+      }
+    }
+    applyVolume()
+    renderSwing()
+  }
+  swingRafId = requestAnimationFrame(swingLoop)
+}
+
+function xFromPointer(e) {
+  const wrapper = swingHost.value?.parentElement
+  if (!wrapper) return
+  const rect = wrapper.getBoundingClientRect()
+  const cx = rect.left + rect.width / 2
+  // 相对拖拽：胶囊跟随指针相对按下点的位移，而不是吸附到指针绝对位置
+  posX = Math.max(-swingXMax, Math.min(swingXMax, e.clientX - cx + grabDX))
+}
+
+// 松手惯性：取轨迹窗口首尾的位移差——反映这一下的拽动方向，而非静止位置
+function releaseVelocity() {
+  if (velHist.length < 2) return 0
+  const a = velHist[0]
+  const b = velHist[velHist.length - 1]
+  const dt = (b.t - a.t) / 1000
+  if (dt < 0.005) return 0
+  return Math.max(-1500, Math.min(1500, (b.x - a.x) / dt))
+}
+
+async function ensurePlaying() {
+  if (!audioContext) await initAudio()
+  await playAudio()
+}
+
+function onCapsulePointerDown(e) {
+  capsuleRef.value?.setPointerCapture(e.pointerId)
+  swingDragging.value = true
+  velX = 0
+  velHist.length = 0
+  downX = e.clientX
+  downY = e.clientY
+  downT = performance.now()
+  dragMoved = false
+  // 记住按下时指针与胶囊的偏差，之后只按拖动方向/距离移动胶囊
+  const wrapper = swingHost.value?.parentElement
+  if (wrapper) {
+    const rect = wrapper.getBoundingClientRect()
+    grabDX = posX - (e.clientX - (rect.left + rect.width / 2))
+  }
+}
+
+function onCapsulePointerMove(e) {
+  if (!swingDragging.value) return
+  if (Math.hypot(e.clientX - downX, e.clientY - downY) > 6) dragMoved = true
+  xFromPointer(e)
+  // 记录最近 ~120ms 的位移轨迹，松手时用窗口首尾差估算惯性
+  const now = performance.now()
+  velHist.push({ t: now, x: posX })
+  while (velHist.length && now - velHist[0].t > 120) velHist.shift()
+
+  const v = applyVolume()
+  // 拖回中间区间 → 解除锁定并恢复播放
+  if (swingLatched.value !== 0 && Math.abs(posX) < swingXMax * SWING.xOff) {
+    swingLatched.value = 0
+  }
+  if (v <= 0) {
+    if (isPlaying.value) pauseAudio()
+  } else if (swingLatched.value === 0 && !isPlaying.value) {
+    void ensurePlaying()
+  }
+  renderSwing()
+}
+
+function onCapsulePointerUp() {
+  if (!swingDragging.value) return
+  swingDragging.value = false
+
+  const isTap = !dragMoved && performance.now() - downT < 400
+  if (isTap) {
+    // 轻点：锁定态 → 解锁回中并播放；否则切换播放/暂停
+    if (swingLatched.value !== 0) {
+      swingLatched.value = 0
+      void ensurePlaying()
+    } else if (isPlaying.value) {
+      pauseAudio()
+    } else {
+      void ensurePlaying()
+    }
+    return
+  }
+
+  velX = releaseVelocity()
+  if (Math.abs(posX) >= swingXMax * SWING.xOff) {
+    // 拖到边缘：锁定关闭，摆锤停在边缘
+    swingLatched.value = posX > 0 ? 1 : -1
+    pauseAudio()
+  } else {
+    // 中途松手：按拽动方向带惯性摆动
+    swingLatched.value = 0
+    if (!isPlaying.value) void ensurePlaying()
+  }
+}
+// ---------- 音量摆锤结束 ----------
 
 const initAudio = async () => {
   try {
@@ -355,12 +623,12 @@ const resizeCanvas = () => {
   if (canvas && avatar) {
     canvas.width = 600
     canvas.height = 600
-    
+
     const avatarRect = avatar.getBoundingClientRect()
     avatarRadius = avatarRect.width / 2
-    
-   
   }
+
+  updateSwingGeometry()
 }
 
 
@@ -368,6 +636,10 @@ const resizeCanvas = () => {
 onBeforeUnmount(() => {
   if (drawRafId) {
     cancelAnimationFrame(drawRafId)
+  }
+
+  if (swingRafId) {
+    cancelAnimationFrame(swingRafId)
   }
 
   if (animationId) {
@@ -431,6 +703,12 @@ const scrollToSection = (sectionId) => {
   overflow: visible;
   background: transparent;
   padding-top: 80px;
+}
+
+/* .hero 是 flex 容器，container 作为 flex item 会按内容收缩；
+   玻璃框需要随视口铺开，强制占满可用宽度（仍受 max-width 1200 约束） */
+.hero .container {
+  width: 100%;
 }
 
 .hero-background {
@@ -528,6 +806,61 @@ const scrollToSection = (sectionId) => {
   position: relative;
   z-index: 2;
   overflow: visible;
+
+  /* 液态玻璃框：磨砂底 + 半透明渐变 + 光泽高光边 + 悬浮投影 */
+  padding: 3rem 3.5rem;
+  border-radius: 36px;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.16) 0%,
+    rgba(255, 255, 255, 0.05) 45%,
+    rgba(255, 255, 255, 0.11) 100%
+  );
+  backdrop-filter: blur(18px) saturate(1.5);
+  -webkit-backdrop-filter: blur(18px) saturate(1.5);
+  border: 1px solid rgba(255, 255, 255, 0.38);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.12),
+    0 24px 70px rgba(31, 45, 61, 0.18);
+}
+
+/* 液态玻璃的流光：一道缓慢游移的对角高光 */
+.hero-content::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(
+    115deg,
+    transparent 32%,
+    rgba(255, 255, 255, 0.22) 46%,
+    rgba(255, 255, 255, 0.06) 54%,
+    transparent 68%
+  );
+  background-size: 250% 100%;
+  animation: glass-sheen 9s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 3;
+}
+
+@keyframes glass-sheen {
+  0%, 100% { background-position: 130% 0; }
+  50% { background-position: -30% 0; }
+}
+
+.dark .hero-content {
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.08) 0%,
+    rgba(255, 255, 255, 0.02) 45%,
+    rgba(255, 255, 255, 0.05) 100%
+  );
+  border-color: rgba(255, 255, 255, 0.16);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.06),
+    0 24px 70px rgba(0, 0, 0, 0.45);
 }
 
 .hero-title {
@@ -675,201 +1008,197 @@ const scrollToSection = (sectionId) => {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  /* 禁止原生图片拖拽：否则拖摆锤时浏览器会劫持手势去拖头像（pointercancel） */
+  -webkit-user-drag: none;
+  user-select: none;
 }
 
 
 
-.audio-control {
+/* ---------- 音量摆锤 ---------- */
+/* 宿主零尺寸锚点在头像中心，子元素用相对中心的坐标摆放，overflow 均可见 */
+.swing-volume {
   position: absolute;
-  bottom: 20px;
-  right: 20px;
-  width: 60px;
-  height: 60px;
-  border-radius: 50%;
-  background: rgba(0, 180, 216, 0.2);
-  border: 2px solid rgba(0, 180, 216, 0.4);
-  color: white;
-  cursor: pointer;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  z-index: 10;
+}
+
+.swing-lines {
+  position: absolute;
+  left: -320px;
+  top: -320px;
+  width: 640px;
+  height: 640px;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.swing-line {
+  stroke: rgba(0, 180, 216, 0.55);
+  stroke-width: 2;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 4px rgba(0, 180, 216, 0.45));
+  transition: stroke 0.25s ease;
+}
+
+/* 磁吸底座：圆框外侧的括号形卡槽，虚线待命，胶囊停靠后变实线满亮 */
+.swing-dock {
+  fill: none;
+  stroke: rgba(0, 180, 216, 0.6);
+  stroke-width: 2.5;
+  stroke-dasharray: 6 8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.35;
+  transition: opacity 0.25s ease, stroke-dasharray 0.25s ease;
+}
+
+.swing-dock.is-seated {
+  stroke-dasharray: none;
+  filter: drop-shadow(0 0 7px rgba(0, 180, 216, 0.7));
+}
+
+.swing-volume.is-dragging .swing-line,
+.swing-volume.is-dragging .swing-capsule {
+  --swing-accent: rgba(0, 180, 216, 0.95);
+}
+
+.swing-capsule {
+  --swing-accent: rgba(0, 180, 216, 0.55);
+  position: absolute;
+  left: -9px;
+  top: -27px;
+  width: 18px;
+  height: 54px;
+  border-radius: 10px;
+  background: rgba(0, 180, 216, 0.18);
+  border: 2px solid var(--swing-accent);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow:
+    0 4px 20px rgba(0, 180, 216, 0.3),
+    inset 0 0 20px rgba(0, 180, 216, 0.1);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  z-index: 11;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  z-index: 10;
-  backdrop-filter: blur(20px);
-  box-shadow: 
-    0 4px 20px rgba(0, 180, 216, 0.3),
-    inset 0 0 20px rgba(0, 180, 216, 0.1);
-  overflow: visible;
+  will-change: transform;
+  transition: background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
 }
 
-.audio-control-inner {
-  position: relative;
-  z-index: 2;
-  transition: transform 0.3s ease;
-}
-
-.audio-control:hover .audio-control-inner {
-  transform: scale(1.1);
-}
-
-.audio-control:hover {
-  background: rgba(0, 180, 216, 0.35);
-  border-color: rgba(0, 180, 216, 0.6);
-  box-shadow: 
+.swing-capsule:hover {
+  background: rgba(0, 180, 216, 0.32);
+  box-shadow:
     0 8px 30px rgba(0, 180, 216, 0.4),
     inset 0 0 30px rgba(0, 180, 216, 0.15);
-  transform: translateY(-3px) scale(1.05);
 }
 
-.audio-control.playing {
-  background: rgba(66, 239, 172, 0.15);
-  border-color: rgba(66, 239, 172, 0.4);
-  box-shadow: 
-    0 4px 20px rgba(66, 239, 172, 0.2),
-    inset 0 0 20px rgba(66, 239, 172, 0.05);
+.swing-volume.is-dragging .swing-capsule {
+  cursor: grabbing;
 }
 
-.audio-control.playing:hover {
-  background: rgba(66, 239, 172, 0.35);
-  border-color: rgba(66, 239, 172, 0.6);
-  box-shadow: 
-    0 8px 30px rgba(66, 239, 172, 0.4),
-    inset 0 0 30px rgba(66, 239, 172, 0.15);
-  transform: translateY(-3px) scale(1.05);
-}
-
-.audio-control-ring {
+/* 内芯亮度 = 音量（--vol 由 JS 写入），随拖动实时变暗/变亮 */
+.swing-capsule::after {
+  content: '';
   position: absolute;
-  top: -4px;
-  left: -4px;
-  right: -4px;
-  bottom: -4px;
-  border-radius: 50%;
-  border: 1px solid rgba(156, 84, 249, 0.2);
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  inset: 3px;
+  border-radius: 7px;
+  background: linear-gradient(180deg, rgba(66, 239, 172, 0.95), rgba(0, 180, 216, 0.75));
+  opacity: calc(var(--vol, 1) * 0.85);
+  transition: opacity 0.15s ease;
+}
+
+/* 关闭（暂停）态：整体降亮度但保留色彩——停靠位置必须看得清，播放/暂停由图标表达 */
+.swing-volume.is-off .swing-capsule {
+  background: rgba(0, 180, 216, 0.1);
+  border-color: rgba(0, 180, 216, 0.4);
+  box-shadow: 0 4px 16px rgba(0, 180, 216, 0.15);
+}
+
+.swing-volume.is-off .swing-line {
+  stroke: rgba(0, 180, 216, 0.32);
+  filter: none;
+}
+
+.swing-volume.is-off .swing-dock {
+  stroke: rgba(0, 180, 216, 0.32);
+}
+
+.swing-volume.is-off .swing-dock.is-seated {
+  filter: drop-shadow(0 0 5px rgba(0, 180, 216, 0.5));
+}
+
+.capsule-icon {
+  color: #fff;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4));
+  position: relative;
   z-index: 1;
+  pointer-events: none;
 }
 
-.audio-control:hover .audio-control-ring {
-  border-color: rgba(156, 84, 249, 0.4);
-  transform: scale(1.05);
+/* 深色模式摆锤 */
+.dark .swing-line {
+  stroke: rgba(170, 126, 247, 0.55);
+  filter: drop-shadow(0 0 4px rgba(170, 126, 247, 0.45));
 }
 
-.audio-control.playing .audio-control-ring {
-  border-color: rgba(66, 239, 172, 0.3);
-  animation: ringPulse 2s ease-in-out infinite;
+.dark .swing-dock {
+  stroke: rgba(170, 126, 247, 0.6);
 }
 
-.audio-control-glow {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(156, 84, 249, 0.3) 0%, transparent 70%);
-  opacity: 0;
-  transition: opacity 0.4s ease, background 0.4s ease;
-  z-index: 0;
+.dark .swing-dock.is-seated {
+  filter: drop-shadow(0 0 7px rgba(170, 126, 247, 0.7));
 }
 
-.audio-control:hover .audio-control-glow {
-  opacity: 1;
+.dark .swing-volume.is-off .swing-capsule {
+  background: rgba(170, 126, 247, 0.12);
+  border-color: rgba(170, 126, 247, 0.45);
+  box-shadow: 0 4px 16px rgba(170, 126, 247, 0.18);
 }
 
-.audio-control.playing .audio-control-glow {
-  background: radial-gradient(circle, rgba(66, 239, 172, 0.3) 0%, transparent 70%);
-  opacity: 1;
-  animation: glowPulse 2s ease-in-out infinite;
+.dark .swing-volume.is-off .swing-line,
+.dark .swing-volume.is-off .swing-dock {
+  stroke: rgba(170, 126, 247, 0.32);
 }
 
-.play-icon, .pause-icon {
-  transition: all 0.3s ease;
+.dark .swing-volume.is-off .swing-dock.is-seated {
+  filter: drop-shadow(0 0 5px rgba(170, 126, 247, 0.5));
 }
 
-.audio-control.playing .play-icon,
-.audio-control:not(.playing) .pause-icon {
-  opacity: 0;
-  transform: scale(0.5);
+.dark .swing-volume.is-dragging .swing-line {
+  stroke: rgba(170, 126, 247, 0.95);
 }
 
-@keyframes ringPulse {
-  0%, 100% {
-    transform: scale(1);
-    opacity: 1;
-  }
-  50% {
-    transform: scale(1.1);
-    opacity: 0.5;
-  }
+.dark .swing-capsule {
+  background: rgba(89, 28, 135, 0.25);
+  border-color: rgba(170, 126, 247, 0.55);
+  box-shadow:
+    0 4px 20px rgba(89, 28, 135, 0.3),
+    inset 0 0 20px rgba(89, 28, 135, 0.15);
 }
 
-@keyframes glowPulse {
-  0%, 100% {
-    opacity: 0.5;
-    transform: translate(-50%, -50%) scale(1);
-  }
-  50% {
-    opacity: 1;
-    transform: translate(-50%, -50%) scale(1.2);
-  }
+.dark .swing-volume.is-dragging .swing-capsule {
+  border-color: rgba(170, 126, 247, 0.95);
 }
 
-/* 深色模式按钮样式 */
-.dark .audio-control {
-  background: rgba(89, 28, 135, 0.2);
-  border-color: rgba(89, 28, 135, 0.4);
-  box-shadow: 
-    0 4px 20px rgba(89, 28, 135, 0.15),
-    inset 0 0 20px rgba(89, 28, 135, 0.08);
+.dark .swing-capsule::after {
+  background: linear-gradient(180deg, rgba(196, 165, 247, 0.95), rgba(138, 43, 226, 0.75));
 }
 
-.dark .audio-control:hover {
+.dark .swing-capsule:hover {
   background: rgba(89, 28, 135, 0.4);
-  border-color: rgba(89, 28, 135, 0.7);
-  box-shadow: 
-    0 8px 30px rgba(89, 28, 135, 0.3),
-    inset 0 0 30px rgba(89, 28, 135, 0.15);
-  transform: translateY(-3px) scale(1.05);
+  box-shadow:
+    0 8px 30px rgba(89, 28, 135, 0.4),
+    inset 0 0 30px rgba(89, 28, 135, 0.2);
 }
 
-.dark .audio-control.playing {
-  background: rgba(170, 126, 247, 0.15);
-  border-color: rgba(170, 126, 247, 0.4);
-  box-shadow: 
-    0 4px 20px rgba(170, 126, 247, 0.2),
-    inset 0 0 20px rgba(170, 126, 247, 0.08);
-}
-
-.dark .audio-control.playing:hover {
-  background: rgba(170, 126, 247, 0.4);
-  border-color: rgba(170, 126, 247, 0.7);
-  box-shadow: 
-    0 8px 30px rgba(170, 126, 247, 0.3),
-    inset 0 0 30px rgba(170, 126, 247, 0.15);
-  transform: translateY(-3px) scale(1.05);
-}
-
-.dark .audio-control-ring {
-  border-color: rgba(89, 28, 135, 0.2);
-}
-
-.dark .audio-control:hover .audio-control-ring {
-  border-color: rgba(89, 28, 135, 0.4);
-}
-
-.dark .audio-control.playing .audio-control-ring {
-  border-color: rgba(170, 126, 247, 0.3);
-}
-
-.dark .audio-control-glow {
-  background: radial-gradient(circle, rgba(89, 28, 135, 0.2) 0%, transparent 70%);
-}
-
-.dark .audio-control.playing .audio-control-glow {
-  background: radial-gradient(circle, rgba(170, 126, 247, 0.2) 0%, transparent 70%);
-}
+/* 深色模式摆锤样式见上方 .dark .swing-* 规则 */
 
 
 
@@ -904,6 +1233,8 @@ const scrollToSection = (sectionId) => {
     grid-template-columns: 1fr;
     gap: 2rem;
     text-align: center;
+    padding: 2rem 1.5rem;
+    border-radius: 28px;
   }
   
   .hero-title {
@@ -915,14 +1246,7 @@ const scrollToSection = (sectionId) => {
     width: 250px;
     height: 250px;
   }
-  
-  .audio-control {
-    width: 45px;
-    height: 45px;
-    bottom: 15px;
-    right: 15px;
-  }
-  
+
   .shape-1 {
     width: 200px;
     height: 200px;
@@ -966,6 +1290,8 @@ const scrollToSection = (sectionId) => {
   
   .hero-content {
     gap: 3rem;
+    padding: 1.5rem 1rem;
+    border-radius: 24px;
   }
   
   .hero-stats {
@@ -975,33 +1301,7 @@ const scrollToSection = (sectionId) => {
   .stat-number {
     font-size: 1.5rem;
   }
-  
-  .audio-control {
-    width: 40px;
-    height: 40px;
-    bottom: 10px;
-    right: 10px;
-    background: rgba(156, 84, 249, 0.8);
-    border-color: rgba(255, 255, 255, 0.3);
-    box-shadow: 0 4px 15px rgba(156, 84, 249, 0.3);
-  }
-  
-  .audio-control:hover {
-    background: rgba(156, 84, 249, 1);
-    box-shadow: 0 6px 25px rgba(156, 84, 249, 0.5);
-  }
-  
-  .audio-control.playing {
-    background: rgba(66, 239, 172, 0.8);
-    border-color: rgba(255, 255, 255, 0.4);
-    box-shadow: 0 4px 15px rgba(66, 239, 172, 0.3);
-  }
-  
-  .audio-control.playing:hover {
-    background: rgba(66, 239, 172, 1);
-    box-shadow: 0 6px 25px rgba(66, 239, 172, 0.5);
-  }
-  
+
   .shape-1,
   .shape-2,
   .shape-3 {

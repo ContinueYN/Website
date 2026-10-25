@@ -16,8 +16,9 @@ import type { CSSProperties } from 'vue'
  *
  * 浅色「晨曦湖岸」Morning by the Lake
  *   · 晨雾中的叠嶂山峦 + 洒金的晨光 + 缓缓漂移的云
- *   · 下方是平静的湖面 —— 鼠标划过水面即泛起涟漪、留下粼光尾迹，
- *     浮光尘埃被波前轻轻推开
+ *   · 下方是平静的湖面 —— 指针像指尖按入水面：移动处压出凹痕、
+ *     向两侧绽开短促的水痕（划开水面），按住拖动会留下渐渐愈合
+ *     的划痕；浮光尘埃被指尖轻轻推开
  *
  * 深色「星月夜」Starry Night
  *   · 圆润的旋涡星涡（螺旋星臂 + 明亮核心，整图烘焙、缓缓旋转）
@@ -334,11 +335,32 @@ interface Ripple {
   maxR: number
   seed: number
 }
-interface Wake {
+/** 水痕：指针划开水面的一次绽开，短寿命即回收 */
+interface Slice {
+  x: number
+  y: number
+  ang: number
+  scale: number
+  life: number
+  maxLife: number
+}
+/** 划痕：按住拖动留下的沟线，松手后开始愈合 */
+interface Scratch {
+  pts: Array<{ x: number; y: number }>
+  life: number
+  maxLife: number
+  done: boolean
+}
+/** 按压脉冲：按下/进入水面时的一个短促回拢圈 */
+interface PressPulse {
   x: number
   y: number
   life: number
+  maxLife: number
 }
+
+const SCRATCH_MAX_PTS = 160
+const SCRATCH_LIFE = 1.0
 
 const MOTE_COLORS = ['#ffd27a', '#8ee8e0', '#f5b5c8', '#b7e9a8', '#a9c8f0']
 const CAUSTIC_COLORS = ['#fff1c4', '#bff0e8', '#ffd9a0']
@@ -348,7 +370,9 @@ let clouds: Cloud[] = []
 let caustics: Caustic[] = []
 let motes: Mote[] = []
 let ripples: Ripple[] = []
-let wake: Wake[] = []
+let slices: Slice[] = []
+let scratches: Scratch[] = []
+let pressPulses: PressPulse[] = []
 let ambientTimer = 0
 let lakeTop = 0.66 // 湖面起始高度（相对画布高）
 
@@ -489,7 +513,9 @@ function buildLight() {
   }
 
   ripples = []
-  wake = []
+  slices = []
+  scratches = []
+  pressPulses = []
   ambientTimer = rand(6, 10)
 
   caustics = []
@@ -508,7 +534,8 @@ function buildLight() {
 }
 
 function spawnRipple(x: number, y: number, strength = 1) {
-  if (ripples.length > 22) ripples.shift()
+  // 涟漪仅剩偶发「雨滴」使用：上限收紧，及时回收
+  if (ripples.length > 8) ripples.shift()
   const scale = clamp(props.connectDistance / 100, 0.8, 1.4)
   ripples.push({
     x,
@@ -519,6 +546,138 @@ function spawnRipple(x: number, y: number, strength = 1) {
     maxR: Math.min(cssW, cssH) * rand(0.2, 0.3) * scale,
     seed: rand(0, Math.PI * 2)
   })
+}
+
+/** 水痕沟（暗部贴图）：被指尖压暗的沟槽，前端（右）贴着指针，向尾部收细 */
+let sliceGroove: HTMLCanvasElement | null = null
+function sliceGrooveSprite(): HTMLCanvasElement {
+  if (sliceGroove) return sliceGroove
+  sliceGroove = document.createElement('canvas')
+  sliceGroove.width = 160
+  sliceGroove.height = 64
+  const x = sliceGroove.getContext('2d')
+  if (!x) return sliceGroove
+  const g = x.createLinearGradient(10, 0, 150, 0)
+  g.addColorStop(0, 'rgba(44, 94, 107, 0)')
+  g.addColorStop(0.55, 'rgba(44, 94, 107, 0.2)')
+  g.addColorStop(1, 'rgba(44, 94, 107, 0.5)')
+  x.fillStyle = g
+  x.beginPath()
+  x.moveTo(10, 32)
+  x.quadraticCurveTo(64, 8, 150, 18)
+  x.quadraticCurveTo(157, 32, 150, 46)
+  x.quadraticCurveTo(64, 56, 10, 32)
+  x.closePath()
+  x.fill()
+  return sliceGroove
+}
+
+/** 水痕棱线（亮部贴图）：沟槽两侧翻开的水脊 + 尾部向后绽开的八字水花 */
+let sliceCrest: HTMLCanvasElement | null = null
+function sliceCrestSprite(): HTMLCanvasElement {
+  if (sliceCrest) return sliceCrest
+  sliceCrest = document.createElement('canvas')
+  sliceCrest.width = 160
+  sliceCrest.height = 64
+  const x = sliceCrest.getContext('2d')
+  if (!x) return sliceCrest
+  x.lineCap = 'round'
+  const g = x.createLinearGradient(10, 0, 150, 0)
+  g.addColorStop(0, 'rgba(255, 246, 220, 0)')
+  g.addColorStop(0.6, 'rgba(255, 250, 230, 0.32)')
+  g.addColorStop(1, 'rgba(255, 255, 255, 0.92)')
+  x.strokeStyle = g
+  x.lineWidth = 2.6
+  x.beginPath()
+  x.moveTo(12, 31)
+  x.quadraticCurveTo(64, 8, 148, 19)
+  x.stroke()
+  x.beginPath()
+  x.moveTo(12, 33)
+  x.quadraticCurveTo(64, 56, 148, 45)
+  x.stroke()
+  // 尾部八字水花
+  x.strokeStyle = 'rgba(255, 250, 230, 0.34)'
+  x.lineWidth = 2
+  x.beginPath()
+  x.moveTo(34, 29)
+  x.lineTo(12, 16)
+  x.moveTo(34, 35)
+  x.lineTo(12, 48)
+  x.stroke()
+  return sliceCrest
+}
+
+/** 指尖凹痕（暗部）：水面被按下去的一小片阴影 */
+let dentSpr: HTMLCanvasElement | null = null
+function dentSprite(): HTMLCanvasElement {
+  if (dentSpr) return dentSpr
+  dentSpr = makeSprite(128, (x, n) => {
+    const c = n / 2
+    const g = x.createRadialGradient(c, c, 0, c, c, c)
+    g.addColorStop(0, 'rgba(37, 84, 96, 0.4)')
+    g.addColorStop(0.5, 'rgba(37, 84, 96, 0.2)')
+    g.addColorStop(1, 'rgba(37, 84, 96, 0)')
+    x.fillStyle = g
+    x.fillRect(0, 0, n, n)
+  })
+  return dentSpr
+}
+
+/** 凹痕反光（亮部）：被压开的水缘一圈细亮环 */
+let dimpleRim: HTMLCanvasElement | null = null
+function dimpleRimSprite(): HTMLCanvasElement {
+  if (dimpleRim) return dimpleRim
+  dimpleRim = makeSprite(128, (x, n) => {
+    const c = n / 2
+    x.strokeStyle = 'rgba(255, 236, 190, 0.26)'
+    x.lineWidth = 8
+    x.beginPath()
+    x.arc(c, c, n * 0.34, 0, Math.PI * 2)
+    x.stroke()
+    x.strokeStyle = 'rgba(255, 255, 255, 0.85)'
+    x.lineWidth = 2.4
+    x.beginPath()
+    x.arc(c, c, n * 0.34, 0, Math.PI * 2)
+    x.stroke()
+  })
+  return dimpleRim
+}
+
+function spawnSlice(x: number, y: number, ang: number, scale: number) {
+  // 与深色星屑（0.35–0.7s）同量级的短寿命：拖尾只贴着指针一小段
+  if (slices.length >= 12) slices.shift()
+  slices.push({ x, y, ang, scale, life: 0.28, maxLife: 0.28 })
+}
+
+function spawnPressPulse(x: number, y: number) {
+  if (pressPulses.length >= 4) pressPulses.shift()
+  pressPulses.push({ x, y, life: 0.34, maxLife: 0.34 })
+}
+
+function beginScratch(x: number, y: number) {
+  if (scratches.length >= 3) scratches.shift()
+  scratches.push({ pts: [{ x, y }], life: SCRATCH_LIFE, maxLife: SCRATCH_LIFE, done: false })
+}
+
+function appendScratchPoint(x: number, y: number) {
+  let cur = scratches[scratches.length - 1]
+  if (cur && !cur.done) {
+    const last = cur.pts[cur.pts.length - 1]!
+    if (Math.hypot(x - last.x, y - last.y) >= 6) {
+      if (cur.pts.length < SCRATCH_MAX_PTS) cur.pts.push({ x, y })
+      else cur.done = true
+    }
+  }
+  cur = scratches[scratches.length - 1]
+  if (!cur || cur.done) beginScratch(x, y)
+}
+
+function sealScratch() {
+  const cur = scratches[scratches.length - 1]
+  if (!cur || cur.done) return
+  if (cur.pts.length < 2) scratches.pop() // 只点了一下，不算划痕
+  else cur.done = true
 }
 
 function updateLight(dt: number) {
@@ -550,29 +709,46 @@ function updateLight(dt: number) {
     if (rp.r >= rp.maxR || rp.alpha < 0.014) ripples.splice(i, 1)
   }
 
-  // 波前推尘
-  for (const rp of ripples) {
-    const band = 30
-    for (const m of motes) {
-      const dx = m.x - rp.x
-      const dy = m.y - rp.y
-      const d = Math.hypot(dx, dy)
-      if (d < 1) continue
-      const delta = Math.abs(d - rp.r)
-      if (delta < band && rp.r > 10) {
-        const push = (1 - delta / band) * 5.4 * (1 - rp.r / rp.maxR)
-        m.vx += (dx / d) * push * m.depth
-        m.vy += (dy / d) * push * m.depth - 0.8 * m.depth
-      }
+  // 水痕：短寿命，到点即回收（拖尾不过几个身位）
+  for (let i = slices.length - 1; i >= 0; i--) {
+    const s = slices[i]
+    if (!s) continue
+    s.life -= dt
+    if (s.life <= 0) slices.splice(i, 1)
+  }
+
+  // 按压脉冲
+  for (let i = pressPulses.length - 1; i >= 0; i--) {
+    const p = pressPulses[i]
+    if (!p) continue
+    p.life -= dt
+    if (p.life <= 0) pressPulses.splice(i, 1)
+  }
+
+  // 划痕：松手后才开始愈合
+  for (let i = scratches.length - 1; i >= 0; i--) {
+    const sc = scratches[i]
+    if (!sc) continue
+    if (sc.done) {
+      sc.life -= dt
+      if (sc.life <= 0) scratches.splice(i, 1)
     }
   }
 
-  // 尾迹
-  for (let i = wake.length - 1; i >= 0; i--) {
-    const w = wake[i]
-    if (!w) continue
-    w.life -= dt
-    if (w.life <= 0) wake.splice(i, 1)
+  // 指尖推开浮尘（单点 O(motes)，取代旧的波前推尘双重循环）
+  if (mouse.inWindow) {
+    const R = 64 * (pointerDown ? 1.5 : 1)
+    const strength = 30 * (pointerDown ? 2.2 : 1)
+    for (const m of motes) {
+      const dx = m.x - smoothX
+      const dy = m.y - smoothY
+      const d2 = dx * dx + dy * dy
+      if (d2 >= R * R) continue
+      const d = Math.sqrt(d2) || 1
+      const f = (1 - d / R) * strength * dt
+      m.vx += (dx / d) * f * m.depth
+      m.vy += (dy / d) * f * m.depth
+    }
   }
 
   // 偶发「雨滴」涟漪
@@ -639,7 +815,7 @@ function drawLight() {
   }
   x.globalAlpha = 1
 
-  // 5. 涟漪（核心交互）
+  // 5. 涟漪（偶发雨滴的环境点缀）
   const ring = ringSprite('#d89a4e')
   for (const rp of ripples) {
     const prog = 1 - rp.r / rp.maxR
@@ -658,20 +834,77 @@ function drawLight() {
   }
   x.globalAlpha = 1
 
-  // 6. 尾迹
-  x.globalCompositeOperation = 'lighter'
-  for (const w of wake) {
-    const f = w.life / 0.8
-    const s = 16 + 34 * f
-    x.globalAlpha = 0.11 * f
-    x.drawImage(glowSprite('#ffe9b8'), w.x - s / 2, w.y - s / 2, s, s)
+  // 6. 划开水面 · 暗部：指尖凹痕 + 水痕沟 + 划痕沟（压暗水面 = 按进去的感觉）
+  //    注意切回 source-over：前面的云/粼光/浮尘都叠在 lighter 模式上
+  x.globalCompositeOperation = 'source-over'
+  if (mouse.inWindow) {
+    const ds = 30 + smoothSpd * 0.035 + (pointerDown ? 18 : 0)
+    x.globalAlpha = 0.5 + (pointerDown ? 0.28 : 0)
+    x.drawImage(dentSprite(), smoothX - ds / 2, smoothY - ds / 2, ds, ds)
+  }
+  const groove = sliceGrooveSprite()
+  for (const s of slices) {
+    const f = s.life / s.maxLife
+    if (f <= 0) continue
+    const w = 150 * s.scale
+    const h = 64 * s.scale
+    x.save()
+    x.translate(s.x, s.y)
+    x.rotate(s.ang)
+    x.globalAlpha = 0.85 * f
+    x.drawImage(groove, -w * 0.94, -h / 2, w, h)
+    x.restore()
+  }
+  x.globalAlpha = 1
+  x.lineJoin = 'round'
+  x.lineCap = 'round'
+  for (const sc of scratches) {
+    if (sc.pts.length < 2) continue
+    const fade = sc.done ? clamp(sc.life / sc.maxLife, 0, 1) : 1
+    x.strokeStyle = `rgba(44, 94, 107, ${0.22 * fade})`
+    x.lineWidth = 4.5
+    x.beginPath()
+    x.moveTo(sc.pts[0]!.x, sc.pts[0]!.y)
+    for (let i = 1; i < sc.pts.length; i++) x.lineTo(sc.pts[i]!.x, sc.pts[i]!.y)
+    x.stroke()
   }
 
-  // 7. 光标柔光
+  // 7. 划开水面 · 亮部：水痕棱线 + 划痕切光 + 凹痕反光 + 按压回拢圈
+  x.globalCompositeOperation = 'lighter'
+  const crest = sliceCrestSprite()
+  for (const s of slices) {
+    const f = s.life / s.maxLife
+    if (f <= 0) continue
+    const w = 150 * s.scale
+    const h = 64 * s.scale
+    x.save()
+    x.translate(s.x, s.y)
+    x.rotate(s.ang)
+    x.globalAlpha = 0.8 * f
+    x.drawImage(crest, -w * 0.94, -h / 2, w, h)
+    x.restore()
+  }
+  for (const sc of scratches) {
+    if (sc.pts.length < 2) continue
+    const fade = sc.done ? clamp(sc.life / sc.maxLife, 0, 1) : 1
+    x.strokeStyle = `rgba(255, 247, 224, ${0.4 * fade})`
+    x.lineWidth = 1.6
+    x.beginPath()
+    x.moveTo(sc.pts[0]!.x, sc.pts[0]!.y)
+    for (let i = 1; i < sc.pts.length; i++) x.lineTo(sc.pts[i]!.x, sc.pts[i]!.y)
+    x.stroke()
+  }
   if (mouse.inWindow) {
-    const s = 210
-    x.globalAlpha = 0.06
-    x.drawImage(glowSprite('#fff7e0'), smoothX - s / 2, smoothY - s / 2, s, s)
+    const rs = 34 + smoothSpd * 0.045 + (pointerDown ? 20 : 0)
+    x.globalAlpha = 0.55 + (pointerDown ? 0.3 : 0)
+    x.drawImage(dimpleRimSprite(), smoothX - rs / 2, smoothY - rs / 2, rs, rs)
+  }
+  for (const p of pressPulses) {
+    const f = clamp(p.life / p.maxLife, 0, 1)
+    const r = 6 + (1 - f) * 20
+    const size = r / 0.42
+    x.globalAlpha = 0.55 * f
+    x.drawImage(ring, p.x - size / 2, p.y - size / 2, size, size)
   }
   x.globalAlpha = 1
   x.globalCompositeOperation = 'source-over'
@@ -1292,47 +1525,63 @@ function drawDark() {
 const mouse = { x: -9999, y: -9999, inWindow: false }
 let smoothX = -9999
 let smoothY = -9999
+let prevSx = -9999
+let prevSy = -9999
+let smoothSpd = 0
 let lastMouseX = -9999
 let lastMouseY = -9999
-let rippleDistAccum = 0
-let lastRippleTime = 0
-let wakeDistAccum = 0
+let sliceDistAccum = 0
+let lastSliceTime = 0
+let pointerDown = false
+
+/** 指针在湖面上划动：按距离节流地绽开水痕；按住时追加划痕 */
+function interactMove(px: number, py: number) {
+  if (lastMouseX < -500) {
+    // 首次进入只对位 + 一个轻轻的回拢圈，不出拖痕
+    spawnPressPulse(px, py)
+    return
+  }
+  const dx = px - lastMouseX
+  const dy = py - lastMouseY
+  const dist = Math.hypot(dx, dy)
+  if (dist <= 0.5) return
+  const now = performance.now()
+  sliceDistAccum += dist
+  if (sliceDistAccum >= 24 && now - lastSliceTime > 24) {
+    spawnSlice(px, py, Math.atan2(dy, dx), clamp(dist / 42, 0.5, 1.15))
+    sliceDistAccum = 0
+    lastSliceTime = now
+  }
+  if (pointerDown) appendScratchPoint(px, py)
+}
+
+function pointerPressAt(px: number, py: number) {
+  pointerDown = true
+  if (props.isDark) return
+  spawnPressPulse(px, py)
+  beginScratch(px, py)
+}
+
+function pointerRelease() {
+  pointerDown = false
+  sealScratch()
+}
 
 function handleMouseMove(e: MouseEvent) {
-  const px = e.clientX
-  const py = e.clientY
-  mouse.x = px
-  mouse.y = py
+  mouse.x = e.clientX
+  mouse.y = e.clientY
   mouse.inWindow = true
+  if (!props.isDark) interactMove(e.clientX, e.clientY)
+  lastMouseX = e.clientX
+  lastMouseY = e.clientY
+}
 
-  if (!props.isDark) {
-    const dx = px - lastMouseX
-    const dy = py - lastMouseY
-    const dist = Math.hypot(dx, dy)
-    const now = performance.now()
+function handleMouseDown(e: MouseEvent) {
+  pointerPressAt(e.clientX, e.clientY)
+}
 
-    if (lastMouseX < -500) {
-      spawnRipple(px, py, 0.8)
-      rippleDistAccum = 0
-      lastRippleTime = now
-    } else if (dist > 0) {
-      rippleDistAccum += dist
-      if (rippleDistAccum >= 20 && now - lastRippleTime > 28) {
-        spawnRipple(px, py, clamp(dist / 46, 0.6, 1.4))
-        rippleDistAccum = 0
-        lastRippleTime = now
-      }
-      wakeDistAccum += dist
-      if (wakeDistAccum >= 26) {
-        if (wake.length > 16) wake.shift()
-        wake.push({ x: px, y: py, life: 0.8 })
-        wakeDistAccum = 0
-      }
-    }
-  }
-
-  lastMouseX = px
-  lastMouseY = py
+function handleMouseUp() {
+  pointerRelease()
 }
 
 function handleMouseLeave() {
@@ -1341,49 +1590,40 @@ function handleMouseLeave() {
   mouse.inWindow = false
   lastMouseX = -9999
   lastMouseY = -9999
-  rippleDistAccum = 0
-  wakeDistAccum = 0
+  sliceDistAccum = 0
+  smoothSpd = 0
+  pointerRelease()
 }
 
 function handleTouchStart(e: TouchEvent) {
   const t = e.touches[0]
   if (!t) return
-  const px = t.clientX
-  const py = t.clientY
-  mouse.x = px
-  mouse.y = py
+  mouse.x = t.clientX
+  mouse.y = t.clientY
   mouse.inWindow = true
-  if (!props.isDark) {
-    spawnRipple(px, py, 1.0)
-    rippleDistAccum = 0
-    lastRippleTime = performance.now()
-  }
-  lastMouseX = px
-  lastMouseY = py
+  pointerPressAt(t.clientX, t.clientY)
+  lastMouseX = t.clientX
+  lastMouseY = t.clientY
 }
 
 function handleTouchMove(e: TouchEvent) {
   const t = e.touches[0]
   if (!t) return
-  const px = t.clientX
-  const py = t.clientY
-  mouse.x = px
-  mouse.y = py
+  mouse.x = t.clientX
+  mouse.y = t.clientY
   mouse.inWindow = true
-  if (!props.isDark) {
-    const dx = px - lastMouseX
-    const dy = py - lastMouseY
-    const dist = Math.hypot(dx, dy)
-    const now = performance.now()
-    rippleDistAccum += dist
-    if (rippleDistAccum >= 20 && now - lastRippleTime > 30) {
-      spawnRipple(px, py, 1.0)
-      rippleDistAccum = 0
-      lastRippleTime = now
-    }
-  }
-  lastMouseX = px
-  lastMouseY = py
+  if (!props.isDark) interactMove(t.clientX, t.clientY)
+  lastMouseX = t.clientX
+  lastMouseY = t.clientY
+}
+
+function handleTouchEnd() {
+  mouse.x = -9999
+  mouse.y = -9999
+  mouse.inWindow = false
+  lastMouseX = -9999
+  lastMouseY = -9999
+  pointerRelease()
 }
 
 // ============================================================
@@ -1421,10 +1661,22 @@ function animate(ts: number) {
   time += dt
 
   if (mouse.inWindow) {
-    if (smoothX < -500) { smoothX = mouse.x; smoothY = mouse.y }
+    if (smoothX < -500) {
+      smoothX = mouse.x
+      smoothY = mouse.y
+      prevSx = smoothX
+      prevSy = smoothY
+    }
     const k = Math.min(1, 7 * dt)
     smoothX += (mouse.x - smoothX) * k
     smoothY += (mouse.y - smoothY) * k
+    // 平滑指针速度：驱动凹痕/水痕的大小（划得越快，水面开得越大）
+    const inst = Math.hypot(smoothX - prevSx, smoothY - prevSy) / Math.max(dt, 1e-3)
+    smoothSpd += (Math.min(inst, 2600) - smoothSpd) * Math.min(1, 8 * dt)
+    prevSx = smoothX
+    prevSy = smoothY
+  } else {
+    smoothSpd *= Math.max(0, 1 - 6 * dt)
   }
 
   if (!isSwitching.value) {
@@ -1459,18 +1711,27 @@ onMounted(() => {
 
   window.addEventListener('resize', handleResize)
   window.addEventListener('mousemove', handleMouseMove)
+  window.addEventListener('mousedown', handleMouseDown)
+  window.addEventListener('mouseup', handleMouseUp)
   window.addEventListener('mouseleave', handleMouseLeave)
   window.addEventListener('touchstart', handleTouchStart, { passive: true })
   window.addEventListener('touchmove', handleTouchMove, { passive: true })
+  window.addEventListener('touchend', handleTouchEnd, { passive: true })
 })
 
 onUnmounted(() => {
   cancelAnimationFrame(rafId)
   window.removeEventListener('resize', handleResize)
   window.removeEventListener('mousemove', handleMouseMove)
+  window.removeEventListener('mousedown', handleMouseDown)
+  window.removeEventListener('mouseup', handleMouseUp)
   window.removeEventListener('mouseleave', handleMouseLeave)
   window.removeEventListener('touchstart', handleTouchStart)
   window.removeEventListener('touchmove', handleTouchMove)
+  window.removeEventListener('touchend', handleTouchEnd)
+  slices = []
+  scratches = []
+  pressPulses = []
 })
 </script>
 

@@ -323,3 +323,137 @@ body {
   width: 0;
   height: 0;
 }
+
+/* ============================================================
+   指针系统 —— 与「湖畔昼夜」同一套语言的定制光标
+   浅色 = 晨光青碧（白瓷箭头 + 青脊线 + 鎏金珠）
+   深色 = 星夜紫金（靛蓝箭头 + 紫脊线 + 金珠）
+   · default  白瓷笔尖箭头
+   · pointer  箭头 + 鎏金珠与一圈青色涟弧（点击处荡开）
+   · text     青墨工字笔杆 + 金点（选字 caret 位）
+   · grab     水珠 + 向上挑起的金箭（托起 / 可拖）
+   · grabbing 实心水珠 + 向下压的金箭（按住 / 拖动中）
+   · progress 箭头 + 青色旋涡（路由切换等加载态，main.ts 切换）
+   · not-allowed 箭头 + 朱砂禁示章
+   不支持 SVG 指针的浏览器自动回退系统光标。
+   ============================================================ */
+:root {
+  --cursor-default:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23ffffff'/%3E%3Cstop offset='1' stop-color='%23c9f2ec'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M6 2.5L6 22.8C6 23.7 7.1 24.2 7.7 23.5L11.6 19.3L14.4 26.3C14.7 27 15.5 27.4 16.2 27.1L17.6 26.5C18.3 26.2 18.6 25.4 18.3 24.7L15.5 17.9L21.3 17.9C22.2 17.9 22.6 16.8 22 16.2L7.7 1.9C7.1 1.3 6 1.8 6 2.5Z' fill='url(%23g)' stroke='%2317323a' stroke-width='1.6' stroke-linejoin='round'/%3E%3Cpath d='M8.3 5.8L8.3 17' fill='none' stroke='%2314b8a6' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E") 6 3,
+    default;
+  --cursor-pointer:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23ffffff'/%3E%3Cstop offset='1' stop-color='%23c9f2ec'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M6 2.5L6 22.8C6 23.7 7.1 24.2 7.7 23.5L11.6 19.3L14.4 26.3C14.7 27 15.5 27.4 16.2 27.1L17.6 26.5C18.3 26.2 18.6 25.4 18.3 24.7L15.5 17.9L21.3 17.9C22.2 17.9 22.6 16.8 22 16.2L7.7 1.9C7.1 1.3 6 1.8 6 2.5Z' fill='url(%23g)' stroke='%2317323a' stroke-width='1.6' stroke-linejoin='round'/%3E%3Cpath d='M8.3 5.8L8.3 17' fill='none' stroke='%2314b8a6' stroke-width='1.5' stroke-linecap='round'/%3E%3Ccircle cx='25' cy='24.6' r='3' fill='%23f6b93b' stroke='%2317323a' stroke-width='1.2'/%3E%3Cpath d='M19.9 24.8a5.5 5.5 0 0 1 10.2 0' fill='none' stroke='%2314b8a6' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E") 6 3,
+    pointer;
+  --cursor-text:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Cpath d='M10.5 5.5H21.5M16 5.5V26.5M10.5 26.5H21.5' fill='none' stroke='%2317323a' stroke-width='3.6' stroke-linecap='round'/%3E%3Cpath d='M10.5 5.5H21.5M16 5.5V26.5M10.5 26.5H21.5' fill='none' stroke='%2314b8a6' stroke-width='1.6' stroke-linecap='round'/%3E%3Ccircle cx='16' cy='16' r='1.8' fill='%23f6b93b'/%3E%3C/svg%3E") 16 16,
+    text;
+  --cursor-grab:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='18.5' r='7.4' fill='%23ffffff' stroke='%2317323a' stroke-width='1.7'/%3E%3Cpath d='M16 14.2c2.1 2.5 3.1 3.9 3.1 5.2a3.1 3.1 0 1 1-6.2 0c0-1.3 1-2.7 3.1-5.2z' fill='%2314b8a6'/%3E%3Cpath d='M11.6 7.6L16 3.4L20.4 7.6' fill='none' stroke='%23f6b93b' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") 16 18,
+    grab;
+  --cursor-grabbing:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='18.5' r='6.4' fill='%2314b8a6' stroke='%2317323a' stroke-width='1.7'/%3E%3Cpath d='M16 14.8c1.8 2.2 2.7 3.4 2.7 4.5a2.7 2.7 0 1 1-5.4 0c0-1.1.9-2.3 2.7-4.5z' fill='%23ffffff' opacity='.92'/%3E%3Cpath d='M11.6 4.6L16 8.8L20.4 4.6' fill='none' stroke='%23f6b93b' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") 16 18,
+    grabbing;
+  --cursor-progress:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23ffffff'/%3E%3Cstop offset='1' stop-color='%23c9f2ec'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M6 2.5L6 22.8C6 23.7 7.1 24.2 7.7 23.5L11.6 19.3L14.4 26.3C14.7 27 15.5 27.4 16.2 27.1L17.6 26.5C18.3 26.2 18.6 25.4 18.3 24.7L15.5 17.9L21.3 17.9C22.2 17.9 22.6 16.8 22 16.2L7.7 1.9C7.1 1.3 6 1.8 6 2.5Z' fill='url(%23g)' stroke='%2317323a' stroke-width='1.6' stroke-linejoin='round'/%3E%3Cpath d='M8.3 5.8L8.3 17' fill='none' stroke='%2314b8a6' stroke-width='1.5' stroke-linecap='round'/%3E%3Cpath d='M25.6 21.2a4.6 4.6 0 1 0 1.2 8.9' fill='none' stroke='%2314b8a6' stroke-width='2' stroke-linecap='round'/%3E%3Ccircle cx='24.2' cy='25.8' r='1.7' fill='%23f6b93b' stroke='%2317323a' stroke-width='.8'/%3E%3C/svg%3E") 6 3,
+    progress;
+  --cursor-not-allowed:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23ffffff'/%3E%3Cstop offset='1' stop-color='%23c9f2ec'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M6 2.5L6 22.8C6 23.7 7.1 24.2 7.7 23.5L11.6 19.3L14.4 26.3C14.7 27 15.5 27.4 16.2 27.1L17.6 26.5C18.3 26.2 18.6 25.4 18.3 24.7L15.5 17.9L21.3 17.9C22.2 17.9 22.6 16.8 22 16.2L7.7 1.9C7.1 1.3 6 1.8 6 2.5Z' fill='url(%23g)' stroke='%2317323a' stroke-width='1.6' stroke-linejoin='round'/%3E%3Ccircle cx='24.5' cy='24.5' r='6.8' fill='%23fdf9f0' stroke='%2317323a' stroke-width='1.6'/%3E%3Cline x1='19.9' y1='19.9' x2='29.1' y2='29.1' stroke='%23e05868' stroke-width='2.2' stroke-linecap='round'/%3E%3C/svg%3E") 6 3,
+    not-allowed;
+}
+
+.dark {
+  --cursor-default:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%234a5290'/%3E%3Cstop offset='1' stop-color='%23232a52'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M6 2.5L6 22.8C6 23.7 7.1 24.2 7.7 23.5L11.6 19.3L14.4 26.3C14.7 27 15.5 27.4 16.2 27.1L17.6 26.5C18.3 26.2 18.6 25.4 18.3 24.7L15.5 17.9L21.3 17.9C22.2 17.9 22.6 16.8 22 16.2L7.7 1.9C7.1 1.3 6 1.8 6 2.5Z' fill='url(%23g)' stroke='%23e3e8ff' stroke-width='1.6' stroke-linejoin='round'/%3E%3Cpath d='M8.3 5.8L8.3 17' fill='none' stroke='%23a78bfa' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E") 6 3,
+    default;
+  --cursor-pointer:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%234a5290'/%3E%3Cstop offset='1' stop-color='%23232a52'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M6 2.5L6 22.8C6 23.7 7.1 24.2 7.7 23.5L11.6 19.3L14.4 26.3C14.7 27 15.5 27.4 16.2 27.1L17.6 26.5C18.3 26.2 18.6 25.4 18.3 24.7L15.5 17.9L21.3 17.9C22.2 17.9 22.6 16.8 22 16.2L7.7 1.9C7.1 1.3 6 1.8 6 2.5Z' fill='url(%23g)' stroke='%23e3e8ff' stroke-width='1.6' stroke-linejoin='round'/%3E%3Cpath d='M8.3 5.8L8.3 17' fill='none' stroke='%23a78bfa' stroke-width='1.5' stroke-linecap='round'/%3E%3Ccircle cx='25' cy='24.6' r='3' fill='%23fbbf24' stroke='%2310142b' stroke-width='1.2'/%3E%3Cpath d='M19.9 24.8a5.5 5.5 0 0 1 10.2 0' fill='none' stroke='%23a78bfa' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E") 6 3,
+    pointer;
+  --cursor-text:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Cpath d='M10.5 5.5H21.5M16 5.5V26.5M10.5 26.5H21.5' fill='none' stroke='%23e3e8ff' stroke-width='3.6' stroke-linecap='round'/%3E%3Cpath d='M10.5 5.5H21.5M16 5.5V26.5M10.5 26.5H21.5' fill='none' stroke='%23a78bfa' stroke-width='1.6' stroke-linecap='round'/%3E%3Ccircle cx='16' cy='16' r='1.8' fill='%23fbbf24'/%3E%3C/svg%3E") 16 16,
+    text;
+  --cursor-grab:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='18.5' r='7.4' fill='%23232a52' stroke='%23e3e8ff' stroke-width='1.7'/%3E%3Cpath d='M16 14.2c2.1 2.5 3.1 3.9 3.1 5.2a3.1 3.1 0 1 1-6.2 0c0-1.3 1-2.7 3.1-5.2z' fill='%23a78bfa'/%3E%3Cpath d='M11.6 7.6L16 3.4L20.4 7.6' fill='none' stroke='%23fbbf24' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") 16 18,
+    grab;
+  --cursor-grabbing:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='18.5' r='6.4' fill='%23a78bfa' stroke='%23e3e8ff' stroke-width='1.7'/%3E%3Cpath d='M16 14.8c1.8 2.2 2.7 3.4 2.7 4.5a2.7 2.7 0 1 1-5.4 0c0-1.1.9-2.3 2.7-4.5z' fill='%23ffffff' opacity='.95'/%3E%3Cpath d='M11.6 4.6L16 8.8L20.4 4.6' fill='none' stroke='%23fbbf24' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") 16 18,
+    grabbing;
+  --cursor-progress:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%234a5290'/%3E%3Cstop offset='1' stop-color='%23232a52'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M6 2.5L6 22.8C6 23.7 7.1 24.2 7.7 23.5L11.6 19.3L14.4 26.3C14.7 27 15.5 27.4 16.2 27.1L17.6 26.5C18.3 26.2 18.6 25.4 18.3 24.7L15.5 17.9L21.3 17.9C22.2 17.9 22.6 16.8 22 16.2L7.7 1.9C7.1 1.3 6 1.8 6 2.5Z' fill='url(%23g)' stroke='%23e3e8ff' stroke-width='1.6' stroke-linejoin='round'/%3E%3Cpath d='M8.3 5.8L8.3 17' fill='none' stroke='%23a78bfa' stroke-width='1.5' stroke-linecap='round'/%3E%3Cpath d='M25.6 21.2a4.6 4.6 0 1 0 1.2 8.9' fill='none' stroke='%23a78bfa' stroke-width='2' stroke-linecap='round'/%3E%3Ccircle cx='24.2' cy='25.8' r='1.7' fill='%23fbbf24' stroke='%2310142b' stroke-width='.8'/%3E%3C/svg%3E") 6 3,
+    progress;
+  --cursor-not-allowed:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%234a5290'/%3E%3Cstop offset='1' stop-color='%23232a52'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M6 2.5L6 22.8C6 23.7 7.1 24.2 7.7 23.5L11.6 19.3L14.4 26.3C14.7 27 15.5 27.4 16.2 27.1L17.6 26.5C18.3 26.2 18.6 25.4 18.3 24.7L15.5 17.9L21.3 17.9C22.2 17.9 22.6 16.8 22 16.2L7.7 1.9C7.1 1.3 6 1.8 6 2.5Z' fill='url(%23g)' stroke='%23e3e8ff' stroke-width='1.6' stroke-linejoin='round'/%3E%3Ccircle cx='24.5' cy='24.5' r='6.8' fill='%23232a52' stroke='%23e3e8ff' stroke-width='1.6'/%3E%3Cline x1='19.9' y1='19.9' x2='29.1' y2='29.1' stroke='%23e05868' stroke-width='2.2' stroke-linecap='round'/%3E%3C/svg%3E") 6 3,
+    not-allowed;
+}
+
+/* —— 接管：全站光标统一由这里分发（组件内的 cursor 声明一律让位） —— */
+html {
+  cursor: var(--cursor-default) !important;
+}
+
+.dark {
+  cursor: var(--cursor-default) !important;
+}
+
+*,
+*::before,
+*::after {
+  cursor: inherit !important;
+}
+
+/* 点击类：链接、按钮与可点元素（含少数用 div 承载点击的组件） */
+a,
+button,
+[role="button"],
+[role="tab"],
+[role="switch"],
+label,
+summary,
+select,
+input[type="button"],
+input[type="submit"],
+input[type="reset"],
+input[type="checkbox"],
+input[type="radio"],
+input[type="file"],
+input[type="range"],
+input[type="color"],
+.header-container,
+.poker,
+.poker_top,
+.curtain-stage {
+  cursor: var(--cursor-pointer) !important;
+}
+
+/* 文本类：输入与可编辑区域 */
+input,
+textarea,
+[contenteditable="true"],
+[contenteditable=""] {
+  cursor: var(--cursor-text) !important;
+}
+
+/* 禁用态 */
+button:disabled,
+input:disabled,
+textarea:disabled,
+select:disabled,
+[aria-disabled="true"] {
+  cursor: var(--cursor-not-allowed) !important;
+}
+
+/* 拖拽类：Hero 音量胶囊 / 页脚 3D 展示 */
+.swing-capsule,
+.vroid-viewer {
+  cursor: var(--cursor-grab) !important;
+}
+
+.swing-volume.is-dragging .swing-capsule,
+.vroid-viewer:active {
+  cursor: var(--cursor-grabbing) !important;
+}
+
+/* 加载态：路由切换期间全站旋涡指针（main.ts 切换 page-loading 类） */
+html.page-loading,
+html.page-loading * {
+  cursor: var(--cursor-progress) !important;
+}

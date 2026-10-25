@@ -33,6 +33,18 @@ if (window.matchMedia) {
 
 const app = createApp(App)
 
+// 路由切换期间全站切换「旋涡」加载指针（globals.css: html.page-loading）
+// afterEach 后延迟一点移除，盖住路由组件的异步加载与淡入淡出空档
+const rootEl = document.documentElement
+const clearLoadingCursor = () => rootEl.classList.remove('page-loading')
+router.beforeEach(() => {
+  rootEl.classList.add('page-loading')
+})
+router.afterEach(() => {
+  window.setTimeout(clearLoadingCursor, 400)
+})
+router.onError(clearLoadingCursor)
+
 // 全局错误处理器
 app.config.errorHandler = (err, instance, info) => {
   console.error('Global error:', err)

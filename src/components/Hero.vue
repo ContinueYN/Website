@@ -176,6 +176,8 @@ let source = null
 let audioElement = null
 let animationId = null
 let dataArray = null
+let audioInitPromise = null // initAudio 单例：并发调用共享同一次初始化，失败可重试
+let playPending = false // play() 在途标志：异步窗口内不重复发起，杜绝 play/pause 竞态风暴
 let avatarRadius = 175
 
 const isDark = ref(false)
@@ -233,15 +235,12 @@ onMounted(() => {
 })
 
 const toggleAudio = async () => {
-  if (!audioContext) {
-    await initAudio()
-  }
-
   if (isPlaying.value) {
     pauseAudio()
-  } else {
-    await playAudio()
+    return
   }
+  // 与摆锤拖拽共用同一条带竞态守卫的播放路径
+  await ensurePlaying()
 }
 
 // ---------- 音量摆锤：玻璃药丸胶囊在头像圆内水平滑动 ----------
@@ -432,8 +431,32 @@ function releaseVelocity() {
 }
 
 async function ensurePlaying() {
-  if (!audioContext) await initAudio()
-  await playAudio()
+  if (playPending) return
+  playPending = true
+  try {
+    await ensureAudioInited()
+    await playAudio()
+  } catch (err) {
+    // AbortError = play() 被随后的 pause() 正常打断（拖到边缘关闭），静默即可
+    const name = err instanceof Error ? err.name : String(err)
+    if (name !== 'AbortError') console.warn('音频播放失败:', err)
+  } finally {
+    playPending = false
+  }
+}
+
+/** initAudio 单例：首次初始化未完成的窗口内，所有并发调用共享同一个 Promise，
+ *  避免重复 new Audio() / new AudioContext() 互相覆盖泄漏；失败清缓存允许重试 */
+function ensureAudioInited() {
+  if (!audioInitPromise) {
+    audioInitPromise = Promise.resolve(initAudio()).then(() => {
+      if (!audioContext || !audioElement) throw new Error('音频初始化未完成')
+    })
+    audioInitPromise.catch(() => {
+      audioInitPromise = null
+    })
+  }
+  return audioInitPromise
 }
 
 function onCapsulePointerDown(e) {

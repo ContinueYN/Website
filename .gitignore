@@ -47,6 +47,7 @@ ehthumbs_vista.db
 *.sw?
 
 # Temporary files
+tmp
 *.tmp
 *.temp
 .cache

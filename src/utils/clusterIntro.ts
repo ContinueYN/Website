@@ -6,9 +6,9 @@
  *  - matcap 贴图着色 + 自旋 + 悬停扩散
  *  - 深度 Sobel 描边 + Bayer 抖动后处理
  *
- * 在参考实现之上新增的「点击 → 爆开 → 平铺马赛克」转场：
+ * 在参考实现之上新增的「点击 → 拼合成球 → 平铺马赛克」转场：
  *  - 点击球体（射线拾取隐形内球）触发
- *  - radialGain 撑大径向分离 → 碎片飞散
+ *  - assembleGain 把噪声缩放收敛到 1 → 八十个碎面严丝合缝拼成完整球
  *  - 每个面的几何通过 a_base 属性塌缩为「标准半正方形三角」，再由实例矩阵
  *    插值到铺满视口的网格（40 格 × 2 = 80 菱形），形成盖满屏幕的彩色马赛克
  *  - onReveal 回调 → 宿主挂载内容，随后整层淡出露出网站
@@ -48,7 +48,7 @@ export interface ClusterIntroOptions {
   /**
    * intro（默认）：开场流程，小球自旋等待点击。
    * return：回归流程，首帧即为盖满屏幕的马赛克（「碎开」的页面），
-   * 稍后反向拼回小球并进入自旋，等待点击重新进入网站。
+   * 稍后反向拼回并恰好封合成完整球，定格一拍裂开后进入自旋，等待点击重新进入网站。
    */
   mode?: 'intro' | 'return'
 }
@@ -58,8 +58,13 @@ export interface ClusterIntroHandle {
 }
 
 const SPIN_SPEED = -0.4
-const EXPLODE_GAIN = 2.0
-const EXPLODE_DURATION = 0.5
+/** 点击后碎片拼合成完整球 */
+const ASSEMBLE_DURATION = 0.55
+/** 完整球定格一拍再平铺开，让「拼成了球」被看清 */
+const ASSEMBLE_HOLD = 0.2
+/** 回归流程：反向封合成球后的定格时长，随后裂开成自旋的碎片球 */
+const RETURN_SEAL_HOLD = 0.35
+const RETURN_CRACK_DURATION = 0.55
 const FLATTEN_DURATION = 1.1
 const MATCAP_URL = '/assets/matcap-yellow-18.png'
 
@@ -70,7 +75,7 @@ interface GridTarget {
   scale: number
 }
 
-type IntroState = 'spin' | 'explode' | 'flatten' | 'return' | 'done'
+type IntroState = 'spin' | 'assemble' | 'flatten' | 'return' | 'done'
 
 /**
  * 给可能挂起的初始化步骤加超时（如无 WebGPU adapter 时 requestAdapter 可能永不返回）。
@@ -83,6 +88,12 @@ function withTimeout<T>(label: string, promise: Promise<T>, ms: number): Promise
     const timer = window.setTimeout(() => reject(new Error(`[ClusterIntro] ${label} 超时（${ms}ms）`)), ms)
     promise.then(resolve, reject).finally(() => window.clearTimeout(timer))
   })
+}
+
+/** 把角度卷到 (-π, π]，视觉朝向不变（自旋角归零前先卷绕，避免长时间停留后倒转多圈） */
+function wrapAngle(a: number): number {
+  const twoPi = Math.PI * 2
+  return a - Math.round(a / twoPi) * twoPi
 }
 
 export async function createClusterIntro(
@@ -128,8 +139,10 @@ export async function createClusterIntro(
   const mapUniform = uniform(dummyTexture)
   const hoverPointWS = uniform(vec3(0))
   const effectStrength = uniform(0)
-  /** 径向分离增益：1=簇状（参考效果）；爆开→2；平铺→0 */
+  /** 径向分离增益：1=簇状（参考效果）；平铺→0（塌缩为标准半正方形三角） */
   const radialGain = uniform(1)
+  /** 拼合度：0=裂开簇状（噪声缩放带缝隙）；1=缩放精确收敛到 1，八十面拼成完整球 */
+  const assembleGain = uniform(0)
   /** 平铺时把配色从「参考暗簇」渐变为「马赛克彩色」 */
   const flattenMix = uniform(0)
 
@@ -183,7 +196,9 @@ export async function createClusterIntro(
     const noise = mx_noise_float(centroid.yz.add(t))
     noise.remapAssign(-1, 1, scaleMin, scaleMax)
     const scaleByHover = hover.remap(0, 1, 0, 0.45)
-    const displaced = centroid.add(centered.mul(noise.add(scaleByHover)))
+    // assembleGain=1 时缩放精确为 1：碎面回到细分二十面体原始位置，严丝合缝拼成完整球
+    const growScale = mix(noise.add(scaleByHover), float(1), assembleGain)
+    const displaced = centroid.add(centered.mul(growScale))
     // radialGain=1 时 = 参考位移；=0 时退化为标准半正方形三角
     return mix(baseLocal, displaced, radialGain)
   })()
@@ -395,26 +410,33 @@ export async function createClusterIntro(
     }
   }
 
-  // ---------- 状态机：spin → explode → flatten → done ----------
+  // ---------- 状态机：spin → assemble → flatten → done ----------
   let state: IntroState = 'spin'
   let flattenProgress: { p: number } | null = null
+  let assembleTimer = 0
 
-  function startExplode() {
+  /** 点击后碎片先严丝合缝拼成完整球，定格一拍再平铺开 */
+  function startAssemble() {
     if (state !== 'spin') return
-    state = 'explode'
-    // 停止自转：把旋转角平滑归零（球/世界同系，便于平铺矩阵计算），避免瞬间跳变
+    state = 'assemble'
+    gsap.to(effectStrength, { value: 0, duration: 0.2, overwrite: true })
+    // 自旋角先卷绕到 (-π, π] 再平滑归零（球/世界同系，便于平铺矩阵计算），
+    // 球封合时恰好停稳；也避免长时间停留后归零时倒转多圈
+    innerMesh.rotation.y = wrapAngle(innerMesh.rotation.y)
     gsap.to(innerMesh.rotation, {
       y: 0,
-      duration: EXPLODE_DURATION,
+      duration: ASSEMBLE_DURATION,
       ease: 'power2.out',
       overwrite: true,
     })
-    gsap.to(effectStrength, { value: 0, duration: 0.2, overwrite: true })
-    gsap.to(radialGain, {
-      value: EXPLODE_GAIN,
-      duration: EXPLODE_DURATION,
-      ease: 'power2.out',
-      onComplete: () => startFlatten(),
+    gsap.to(assembleGain, {
+      value: 1,
+      duration: ASSEMBLE_DURATION,
+      ease: 'power3.inOut',
+      overwrite: true,
+      onComplete: () => {
+        assembleTimer = window.setTimeout(startFlatten, ASSEMBLE_HOLD * 1000)
+      },
     })
   }
 
@@ -458,11 +480,27 @@ export async function createClusterIntro(
           if (flattenProgress) applyFlatten(flattenProgress.p)
         },
         onComplete: () => {
-          state = 'spin'
+          // 碎片恰好封合成完整球：定格一拍，随后裂开成自旋的碎片球
+          assembleTimer = window.setTimeout(() => {
+            state = 'spin'
+            gsap.to(assembleGain, {
+              value: 0,
+              duration: RETURN_CRACK_DURATION,
+              ease: 'power2.inOut',
+              overwrite: true,
+            })
+          }, RETURN_SEAL_HOLD * 1000)
         },
       })
       gsap.to(radialGain, { value: 1, duration: FLATTEN_DURATION, ease: 'power2.inOut' })
       gsap.to(flattenMix, { value: 0, duration: FLATTEN_DURATION, ease: 'power2.inOut' })
+      // 飞回途中逐渐拼合，抵达球位时恰好封合成完整球
+      gsap.to(assembleGain, {
+        value: 1,
+        duration: FLATTEN_DURATION,
+        ease: 'power2.inOut',
+        overwrite: true,
+      })
     }, 800)
   }
 
@@ -512,7 +550,7 @@ export async function createClusterIntro(
     if (state !== 'spin') return
     updateNdc(e.clientX, e.clientY)
     if (raycastInner().length > 0) {
-      startExplode()
+      startAssemble()
     }
   }
 
@@ -558,10 +596,12 @@ export async function createClusterIntro(
     if (disposed.current) return
     disposed.current = true
     window.clearTimeout(returnTimer)
+    window.clearTimeout(assembleTimer)
     container.removeEventListener('pointermove', onPointerMove)
     container.removeEventListener('pointerdown', onPointerDown)
     resizeObserver.disconnect()
     gsap.killTweensOf(radialGain)
+    gsap.killTweensOf(assembleGain)
     gsap.killTweensOf(flattenMix)
     gsap.killTweensOf(effectStrength)
     gsap.killTweensOf(hoverPointWS.value)

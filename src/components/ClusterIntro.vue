@@ -21,7 +21,7 @@ import type { ClusterIntroHandle } from '../utils/clusterIntro'
  * 本组件动态 import clusterIntro.ts（含 three/webgpu，体积大），只在需要时加载。
  */
 const props = defineProps<{
-  /** intro：开场流程；return：回归流程（首帧满屏马赛克，反向拼回小球） */
+  /** intro：开场流程（点击后碎片拼合成球再炸开平铺）；return：回归流程（首帧满屏马赛克，反向拼回封合成球后裂开自旋） */
   mode?: 'intro' | 'return'
 }>()
 

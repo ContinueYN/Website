@@ -370,7 +370,8 @@ onBeforeUnmount(() => {
     padding 0.55s cubic-bezier(0.22, 1, 0.36, 1),
     opacity 0.32s ease,
     transform 0.55s cubic-bezier(0.22, 1, 0.36, 1),
-    color 0.25s ease;
+    color 0.25s ease,
+    filter 0.3s ease;
 }
 
 /* 左侧标签从圆钮方向滑出，右侧镜像，形成"向两边延展"的动势 */
@@ -390,20 +391,33 @@ onBeforeUnmount(() => {
   pointer-events: auto;
 }
 
+/* 电脑端：标签默认重模糊成"点"，指针扫过才对焦显示文字；
+   触屏没有 hover，保持清晰可读。filter 不参与弹出 stagger（延迟恒 0） */
+@media (hover: hover) {
+  .nav-dock.open .dock-link {
+    filter: blur(5px);
+  }
+
+  .nav-dock.open .dock-link:hover,
+  .nav-dock.open .dock-link:focus-visible {
+    filter: blur(0);
+  }
+}
+
 /* 逐个弹出：紧邻圆钮的先出现，最外侧最后，两侧对称 */
 .nav-dock.open .dock-group.left .dock-link:nth-child(3),
 .nav-dock.open .dock-group.right .dock-link:nth-child(1) {
-  transition-delay: 0.05s, 0.05s, 0.09s, 0.05s, 0s;
+  transition-delay: 0.05s, 0.05s, 0.09s, 0.05s, 0s, 0s;
 }
 
 .nav-dock.open .dock-group.left .dock-link:nth-child(2),
 .nav-dock.open .dock-group.right .dock-link:nth-child(2) {
-  transition-delay: 0.12s, 0.12s, 0.16s, 0.12s, 0s;
+  transition-delay: 0.12s, 0.12s, 0.16s, 0.12s, 0s, 0s;
 }
 
 .nav-dock.open .dock-group.left .dock-link:nth-child(1),
 .nav-dock.open .dock-group.right .dock-link:nth-child(3) {
-  transition-delay: 0.19s, 0.19s, 0.23s, 0.19s, 0s;
+  transition-delay: 0.19s, 0.19s, 0.23s, 0.19s, 0s, 0s;
 }
 
 .nav-dock.open .dock-link:hover {

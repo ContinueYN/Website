@@ -121,6 +121,7 @@
         function revealSite() {
           if (window.__revealDone) return;
           window.__revealDone = true;
+          clearInterval(bcci);
           lb.style.opacity = 0;
           lb.style.pointerEvents = 'none';
           setTimeout(function() {
@@ -128,14 +129,12 @@
           }, 1000);
         }
 
-        // 结束加载动画：只通知 Vue 开始挂载转场/内容，不再直接淡出遮罩
+        // 结束加载动画：只通知 Vue 开始挂载转场/内容，不再直接淡出遮罩。
+        // 诗词轮播保留（遮罩可能还要盖很久），等 revealSite 时才停。
         function finishLoading() {
           if (window.__loadingComplete) return; // 防止重复调用
           window.__loadingComplete = true;
-          clearInterval(bcci);
-          // ① 先通知 Vue 开始挂载（遮罩仍覆盖在上面，转场初始化被遮罩挡住）
           window.dispatchEvent(new Event('loading-complete'));
-          // ② 遮罩淡出改由 'intro-ready' 触发（见下方监听）
         }
 
         // 页面加载完成后结束（但保证最短展示时间至少覆盖第一条消息 ~2s）
@@ -153,13 +152,25 @@
         // Vue 侧就绪信号：intro 首帧渲染完成 / 内容已直接显示 → 淡出遮罩
         window.addEventListener('intro-ready', revealSite);
 
-        // 兜底：最长8秒后强制结束（无论 intro 是否就绪都淡出，避免站点被永久遮住）
+        // 兜底①：最长8秒后只通知 Vue 开始挂载（遮罩保留，诗词继续轮播，
+        // 慢网络下用户看到的是加载文案而不是黑屏）
         setTimeout(function() {
           if (!window.__loadingComplete) {
             finishLoading();
           }
-          revealSite();
         }, 8000);
+
+        // 兜底②：最长30秒，仅当 Vue 已挂载（#app 有子节点）但 intro-ready
+        // 迟迟未来（事件链异常）时才强制淡出；Vue 仍未挂载说明资源还在下载，
+        // 遮罩继续轮播诗词比裸黑屏更友好
+        setTimeout(function() {
+          if (window.__revealDone) return;
+          var app = document.getElementById('app');
+          if (app && app.childElementCount > 0) {
+            if (!window.__loadingComplete) finishLoading();
+            revealSite();
+          }
+        }, 30000);
       })();
     </script>
     <div id="app"></div>

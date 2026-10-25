@@ -15,13 +15,26 @@
         :class="`poker${index + 1}`"
         @mouseenter="handleCardHover(index)"
         @mouseleave="handleCardLeave(index)"
-        @click="handleCardClick(index)"
+        @click="drawCard(index)"
       >
-        <div class="card-content">
-          <div class="vertical-text">
-            <span>{{ card.text.charAt(0) }}</span>
-            <span>{{ card.text.charAt(1) }}</span>
+        <div class="card-face card-front">
+          <div class="card-content">
+            <div class="vertical-text">
+              <span>{{ card.text.charAt(0) }}</span>
+              <span>{{ card.text.charAt(1) }}</span>
+            </div>
           </div>
+        </div>
+        <div class="card-face card-back">
+          <h3 class="back-title">{{ card.title }}</h3>
+          <p class="back-desc">{{ card.description }}</p>
+          <div class="back-tags">
+            <span v-for="(tag, idx) in card.tags" :key="idx" class="back-tag">
+              {{ tag }}
+            </span>
+          </div>
+          <div class="back-divider"></div>
+          <p class="back-details">{{ card.details }}</p>
         </div>
       </div>
       <div
@@ -43,37 +56,24 @@
       </div>
     </div>
 
-    <div class="modal" v-if="showModal" @click="closeModal">
-      <div class="modal-content" @click.stop>
-        <button type="button" class="modal-close" @click="closeModal">
-          <X :size="24" />
-        </button>
-        <h3 class="modal-title">{{ activeCard.title }}</h3>
-        <p class="modal-description">{{ activeCard.description }}</p>
-        <div class="modal-tags">
-          <span v-for="(tag, idx) in activeCard.tags" :key="idx" class="tag">
-            {{ tag }}
-          </span>
-        </div>
-        <div class="modal-divider"></div>
-        <p class="modal-details">{{ activeCard.details }}</p>
-      </div>
-    </div>
+    <!-- 抽牌遮罩：落牌后压暗背景，点任意处（含飞行中的牌本身）原路放回 -->
+    <div v-show="showFlight" ref="flightOverlayRef" class="flight-overlay" @click="returnCard"></div>
   </section>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
-import { X } from 'lucide-vue-next'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
+import gsap from 'gsap'
+import { MotionPathPlugin } from 'gsap/MotionPathPlugin'
 import { useScrollLock } from '../composables/useScrollLock'
+
+gsap.registerPlugin(MotionPathPlugin)
 
 const { lock: lockScroll, unlock: unlockScroll } = useScrollLock()
 
 const pokerRefs = ref([])
 const pokerEles = ref([])
 const imgIndex = ref(0)
-const showModal = ref(false)
-const clickedCardIndex = ref(0)
 const headerRefs = ref([])
 const faultPlayer = ref(null)
 
@@ -133,9 +133,211 @@ const cards = ref([
   }
 ])
 
-const activeCard = computed(() => {
-  return cards.value[clickedCardIndex.value]
-})
+// —— 抽牌飞行 ——
+// 点击卡牌：克隆一张固定定位的牌挂到 body（脱离牌堆容器的 transform/层叠上下文），
+// 沿类抛物线飞向屏幕中心并在途中翻面露出背面内容；
+// 点任意处：timeline.reverse() 从当前进度原路倒播放回，半途中断同样连续。
+// 两段式抽牌：A 抽出（拽离牌堆，仍背面朝上）→ B 翻面送达（甩到牌堆上方途中翻开）
+// 逆放回 = B 的倒放（翻回背面）+ A 的倒放（插回牌堆），动作符合现实顺序
+const PULL_D = 0.3
+const TOSS_D = 0.45
+
+const clamp = (v, min, max) => (min > max ? (min + max) / 2 : Math.min(Math.max(v, min), max))
+
+const showFlight = ref(false)
+const flightOverlayRef = ref(null)
+
+let flightTl = null
+let overlayFade = null
+let flightClone = null
+let flightSource = null
+let flightReturning = false
+
+const deckAngleOf = (el, fallbackIndex) => {
+  const tf = transformDatas[el?.nums] ?? transformDatas[fallbackIndex] ?? ''
+  const m = /rotate\(([-\d.]+)deg\)/.exec(tf)
+  return m ? parseFloat(m[1]) : 0
+}
+
+const drawCard = (index) => {
+  if (flightTl) return
+  const original = pokerEles.value[index]
+  if (!original) return
+
+  const rect = original.getBoundingClientRect()
+  const W = original.offsetWidth
+  const H = original.offsetHeight
+  const startAngle = deckAngleOf(original, index)
+  const targetScale = Math.max(1, Math.min(
+    (window.innerHeight * 0.76) / H,
+    (window.innerWidth * 0.88) / W,
+    2
+  ))
+  // 旋转刚体的包围盒中心恒等于牌面中心：克隆以此定位，起始姿态与原牌视觉完全一致
+  const startX = rect.left + rect.width / 2 - W / 2
+  const startY = rect.top + rect.height / 2 - H / 2
+  // 落点：牌堆容器中心（抽出来悬在牌堆上方翻开），并钳制在视口内——
+  // 无论页面滚到哪、窗口多小，翻开的牌始终完整可见。
+  // 注意 scale 围绕元素中心缩放：x/y 定位的是未缩放的左上角，
+  // 中心 = x + W/2，故落点换算用 W/2 而非缩放后的半宽
+  const pile = document.querySelector('#about .container')
+  const pileRect = pile ? pile.getBoundingClientRect() : null
+  const margin = 16
+  const halfW = (W * targetScale) / 2
+  const halfH = (H * targetScale) / 2
+  const landCx = clamp(
+    pileRect ? pileRect.left + pileRect.width / 2 : window.innerWidth / 2,
+    margin + halfW,
+    window.innerWidth - margin - halfW
+  )
+  const landCy = clamp(
+    pileRect ? pileRect.top + pileRect.height / 2 : window.innerHeight / 2,
+    margin + halfH,
+    window.innerHeight - margin - halfH
+  )
+  const endX = landCx - W / 2
+  const endY = landCy - H / 2
+  // A 抽出：沿牌面自身朝向把牌拽出牌堆（保持背面朝上、原倾斜、原大小）
+  const angleRad = (startAngle * Math.PI) / 180
+  const pullDist = Math.min(H * 0.4, 150)
+  const pullX = startX + Math.sin(angleRad) * pullDist
+  const pullY = startY - Math.cos(angleRad) * pullDist
+
+  flightClone = original.cloneNode(true)
+  flightClone.classList.add('about-flight-card')
+  flightClone.style.cssText = ''
+  flightClone.addEventListener('click', returnCard)
+  document.body.appendChild(flightClone)
+
+  original.style.visibility = 'hidden'
+  flightSource = original
+
+  showFlight.value = true
+  lockScroll()
+  window.addEventListener('keydown', onFlightKeydown)
+
+  gsap.set(flightClone, {
+    x: startX,
+    y: startY,
+    rotation: startAngle,
+    rotationY: 0,
+    scale: 1,
+    transformPerspective: 1200,
+    transformOrigin: '50% 50%'
+  })
+
+  flightTl = gsap.timeline({
+    defaults: { ease: 'power1.inOut' },
+    onReverseComplete: restoreCard
+  })
+
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    // 弱动效：去掉弧线甩动，只保留抽出与直线送达翻面
+    flightTl
+      .to(flightClone, { x: pullX, y: pullY, duration: PULL_D, ease: 'power2.out' }, 0)
+      .to(flightClone, { x: endX, y: endY, rotation: 0, scale: targetScale, duration: TOSS_D, ease: 'power1.inOut' }, PULL_D)
+      .to(flightClone, { rotationY: 180, duration: TOSS_D * 0.8, ease: 'power2.inOut' }, PULL_D + 0.05)
+  } else {
+    // B 段弧线：从拽出点甩向落点，弧顶向外上拱
+    const bulgeX = -Math.sign(endX - pullX) * Math.min(Math.abs(endX - pullX) * 0.3, 120)
+    const bulgeY = -Math.min(Math.abs(endY - pullY) * 0.25, 110)
+
+    flightTl
+      // A 抽出：快速拽出牌堆，末端减速停住（像捏着牌抽离那一瞬）
+      .to(flightClone, { x: pullX, y: pullY, duration: PULL_D, ease: 'power2.out' }, 0)
+      // B 翻面送达：小弧线甩到牌堆上方，途中翻面、摆正、放大
+      .to(flightClone, {
+        motionPath: {
+          path: [
+            { x: pullX, y: pullY },
+            { x: (pullX + endX) / 2 + bulgeX, y: (pullY + endY) / 2 + bulgeY },
+            { x: endX, y: endY }
+          ],
+          curviness: 1.3
+        },
+        duration: TOSS_D,
+        ease: 'power1.inOut'
+      }, PULL_D)
+      .to(flightClone, { rotation: 0, duration: TOSS_D * 0.8, ease: 'power2.out' }, PULL_D)
+      .to(flightClone, { rotationY: 180, duration: TOSS_D * 0.85, ease: 'power2.inOut' }, PULL_D + 0.04)
+      .to(flightClone, { scale: targetScale, duration: TOSS_D, ease: 'power1.inOut' }, PULL_D)
+  }
+
+  // 落定后再压暗背景：注意力先跟着牌走
+  if (flightOverlayRef.value) {
+    overlayFade = gsap.fromTo(flightOverlayRef.value,
+      { opacity: 0 },
+      { opacity: 1, duration: 0.4, delay: PULL_D + TOSS_D * 0.55 }
+    )
+  }
+}
+
+const returnCard = () => {
+  if (!flightTl || flightReturning) return
+  flightReturning = true
+  if (overlayFade) {
+    overlayFade.kill()
+    overlayFade = null
+  }
+  if (flightOverlayRef.value) {
+    gsap.to(flightOverlayRef.value, { opacity: 0, duration: 0.28, overwrite: 'auto' })
+  }
+  flightTl.reverse()
+}
+
+const restoreCard = () => {
+  if (flightClone) {
+    flightClone.remove()
+    flightClone = null
+  }
+  if (flightSource) {
+    const el = flightSource
+    // 先对齐克隆落点（含悬停抽出的位移），显现后下一帧再平滑滑回牌堆槽位
+    const slot = transformDatas[el.nums] ?? ''
+    el.style.transition = 'none'
+    el.style.transform = `${slot} translate(0, -3rem)`
+    el.style.visibility = ''
+    requestAnimationFrame(() => {
+      el.style.transition = 'transform 0.3s ease'
+      el.style.transform = slot
+    })
+    flightSource = null
+  }
+  flightTl = null
+  flightReturning = false
+  showFlight.value = false
+  unlockScroll()
+  window.removeEventListener('keydown', onFlightKeydown)
+}
+
+const onFlightKeydown = (e) => {
+  if (e.key === 'Escape') returnCard()
+}
+
+const cleanupFlight = () => {
+  window.removeEventListener('keydown', onFlightKeydown)
+  if (overlayFade) {
+    overlayFade.kill()
+    overlayFade = null
+  }
+  if (flightTl) {
+    flightTl.kill()
+    flightTl = null
+  }
+  if (flightClone) {
+    flightClone.remove()
+    flightClone = null
+  }
+  if (flightSource) {
+    flightSource.style.visibility = ''
+    flightSource.style.transform = transformDatas[flightSource.nums] ?? ''
+    flightSource = null
+  }
+  if (showFlight.value) {
+    showFlight.value = false
+    unlockScroll()
+  }
+}
 
 const transformDatas = [
   "rotate(-10deg)",
@@ -196,20 +398,8 @@ const handleCardLeave = (index) => {
   }
 }
 
-const handleCardClick = (index) => {
-  // 点击：以 macOS 缩放动画弹出详情弹窗
-  clickedCardIndex.value = index
-  showModal.value = true
-  lockScroll()
-}
-
 const handleTopClick = () => {
   move()
-}
-
-const closeModal = () => {
-  showModal.value = false
-  unlockScroll()
 }
 
 const triggerFault = () => {
@@ -266,6 +456,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('cluster-reset', onClusterReset)
+  cleanupFlight()
 })
 </script>
 
@@ -426,15 +617,24 @@ onBeforeUnmount(() => {
   box-shadow: -5px -7px 5px rgba(130, 130, 130, 0.5);
   border-radius: 1.5rem;
   background: var(--about-card);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
   transform-origin: bottom left;
-  overflow: hidden;
 }
 
+/* 双面牌：overflow / backdrop-filter 会把 preserve-3d 压扁，
+   裁切与毛玻璃必须下放到各个 face 上；顶牌无 3D 子元素，留在自身 */
 .poker {
   cursor: pointer;
   transition: filter 0.3s ease, transform 0.3s ease;
+  transform-style: preserve-3d;
+}
+
+.poker_top {
+  overflow: hidden;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  transition: 0.3s ease;
+  cursor: pointer;
+  z-index: 1000;
 }
 
 .poker:hover {
@@ -443,6 +643,86 @@ onBeforeUnmount(() => {
   box-shadow:
     0 20px 60px rgba(0, 0, 0, 0.28),
     0 0 28px var(--primary-light);
+}
+
+/* 正反两面绝对定位铺满，各带 backface-visibility：
+   每个面只在朝向观众时物理可见，翻面任意速度下正反面文字都不会互透 */
+.card-face {
+  position: absolute;
+  inset: 0;
+  border-radius: 1.5rem;
+  overflow: hidden;
+  background: var(--about-card);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.card-back {
+  transform: rotateY(180deg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 2.6rem 2rem 2rem;
+}
+
+.back-title {
+  font-size: 1.9rem;
+  font-weight: 900;
+  background: var(--gradient-primary);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 1.2rem rgba(167, 254, 215, 0.45));
+  margin-bottom: 0.4rem;
+}
+
+.back-desc {
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  text-align: center;
+  margin-bottom: 0.9rem;
+}
+
+.back-tags {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.45rem;
+  margin-bottom: 0.8rem;
+}
+
+.back-tag {
+  padding: 0.28rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--primary-dark);
+  background: rgba(167, 254, 215, 0.14);
+  border: 1px solid var(--primary-color);
+  border-radius: 2rem;
+  box-shadow: 0 0 8px rgba(167, 254, 215, 0.25);
+  white-space: nowrap;
+}
+
+.back-divider {
+  width: 82%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--primary-color), transparent);
+  margin-bottom: 0.8rem;
+}
+
+.back-details {
+  font-size: 0.82rem;
+  line-height: 1.95;
+  color: var(--text-secondary);
+  text-align: justify;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 0.2rem;
+  scrollbar-width: none;
 }
 
 .poker .card-content {
@@ -474,12 +754,6 @@ onBeforeUnmount(() => {
 .dark .poker .vertical-text span {
   color: #fff;
   text-shadow: 0 0 1vmin rgba(0, 0, 0, 0.5);
-}
-
-.poker_top {
-  transition: 0.3s ease;
-  cursor: pointer;
-  z-index: 1000;
 }
 
 /* 顶牌上的书法条幅装饰（装裱卷轴风，跟随主题色） */
@@ -560,140 +834,14 @@ onBeforeUnmount(() => {
   transform: rotate(6deg) translate(125%, -23%);
 }
 
-.modal {
+/* 抽牌遮罩：落牌后压暗页面，点击任意处原路放回（无关闭按钮） */
+.flight-overlay {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(10px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 4000;
-  animation: fadeIn 0.3s ease;
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-.modal-content {
-  background: var(--bg-card);
-  border-radius: 20px;
-  padding: 50px;
-  max-width: 600px;
-  width: 90%;
-  position: relative;
-  box-shadow: 
-    var(--shadow-lg),
-    0 0 40px rgba(167, 254, 215, 0.2);
-  border: 2px solid var(--primary-color);
-  transform-origin: 50% 100%;
-  animation: macOpen 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-/* macOS 打开应用式缩放：从小尺寸放大到完整大小，带轻微回弹 */
-@keyframes macOpen {
-  from {
-    opacity: 0;
-    transform: scale(0.55) translateY(30px);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
-}
-
-.modal-close {
-  position: absolute;
-  top: 20px;
-  right: 20px;
-  background: transparent;
-  border: 2px solid var(--primary-color);
-  color: var(--primary-color);
+  inset: 0;
+  background: rgba(5, 9, 13, 0.55);
+  z-index: 3500;
   cursor: pointer;
-  padding: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  transition: all 0.3s ease;
-  width: 40px;
-  height: 40px;
-}
-
-.modal-close:hover {
-  background: var(--primary-color);
-  color: var(--text-main);
-  transform: rotate(90deg);
-  box-shadow: 0 0 20px var(--primary-color);
-}
-
-.modal-title {
-  font-size: 2.5rem;
-  font-weight: 900;
-  background: var(--gradient-primary);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  margin-bottom: 20px;
-  text-align: center;
-  filter: drop-shadow(0 0 20px rgba(167, 254, 215, 0.5));
-}
-
-.modal-description {
-  font-size: 1.2rem;
-  line-height: 1.8;
-  color: var(--text-secondary);
-  text-align: center;
-  margin-bottom: 30px;
-}
-
-.modal-tags {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 12px;
-  margin-bottom: 30px;
-}
-
-.tag {
-  padding: 10px 24px;
-  background: rgba(167, 254, 215, 0.15);
-  color: var(--primary-dark);
-  border-radius: 25px;
-  font-size: 1rem;
-  font-weight: 600;
-  border: 2px solid var(--primary-color);
-  transition: all 0.3s ease;
-  box-shadow: 0 0 10px rgba(167, 254, 215, 0.3);
-}
-
-.tag:hover {
-  background: var(--primary-color);
-  color: var(--text-main);
-  box-shadow: 0 0 20px var(--primary-color);
-  transform: translateY(-2px);
-}
-
-.modal-divider {
-  height: 2px;
-  background: linear-gradient(90deg, transparent, var(--primary-color), transparent);
-  margin-bottom: 30px;
-}
-
-.modal-details {
-  font-size: 1.1rem;
-  line-height: 2;
-  color: var(--text-secondary);
-  text-align: justify;
+  opacity: 0;
 }
 
 @media (max-width: 768px) {
@@ -744,33 +892,67 @@ onBeforeUnmount(() => {
     width: 2.2rem;
     height: 2.2rem;
   }
-  
-  .modal-content {
-    padding: 30px 20px;
+
+  /* 小屏牌面宽 40vw：牌背文字按牌宽等比缩放
+    （桌面 rem 值以 20rem 牌宽标定，比例一一对应） */
+  .card-back {
+    padding: 5vw 4vw 4vw;
   }
 
-  /* 修复移动端 × 关闭按钮点击无响应：
-     iOS Safari 上全屏 fixed 遮罩层的 backdrop-filter 会截获子按钮的点击命中
-     （已知浏览器 bug），移动端移除毛玻璃、改用纯色半透明底，并给按钮提升层级 */
-  .modal {
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
+  .back-title {
+    font-size: 3.7vw;
+    margin-bottom: 1.2vw;
   }
 
-  .modal-close {
-    z-index: 20;
+  .back-desc {
+    font-size: 1.85vw;
+    margin-bottom: 2.2vw;
   }
-  
-  .modal-title {
-    font-size: 1.8rem;
+
+  .back-tags {
+    gap: 1vw;
+    margin-bottom: 2.2vw;
   }
-  
-  .modal-description {
-    font-size: 1rem;
+
+  .back-tag {
+    font-size: 1.5vw;
+    padding: 0.6vw 1.6vw;
   }
-  
-  .modal-details {
-    font-size: 0.95rem;
+
+  .back-divider {
+    margin-bottom: 2.2vw;
   }
+
+  .back-details {
+    font-size: 1.6vw;
+    line-height: 2;
+  }
+}
+</style>
+
+<style>
+/* 抽牌飞行的克隆牌挂在 body 下（脱离组件容器），需全局样式。
+   克隆同时保有 .poker 类，scoped 的 .poker[data-v] 特异度更高，
+   position/left 等必须 !important 才能压过 absolute 定位——否则固定定位失效，
+   坐标按视口算、渲染按文档流走，页面滚得越多牌偏得越远 */
+.about-flight-card {
+  position: fixed !important;
+  left: 0 !important;
+  top: 0 !important;
+  margin: 0;
+  z-index: 3600;
+  cursor: pointer;
+  will-change: transform;
+  /* 掐掉 scoped .poker 继承的 transform 过渡：GSAP 逐帧写内联 transform，
+     叠 CSS transition 会逐帧插值拖尾，动画发粘失真 */
+  transition: none !important;
+}
+
+/* 飞行/翻面展示态不吃牌堆的悬停增亮与光晕（指针划过翻开的牌会闪，
+   与翻面效果冲突），改用恒定的悬浮投影 */
+.about-flight-card,
+.about-flight-card:hover {
+  filter: none !important;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45) !important;
 }
 </style>

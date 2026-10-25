@@ -12,17 +12,17 @@
         @mouseleave="isOpen = false"
         @click="toggleCurtain"
       >
-        <!-- 中心 SKILL 大字（帷幕展开后浮现，可点击） -->
+        <!-- 中心 SKILL 大字（帷幕展开后浮现，点击启动终端） -->
         <div class="curtain-center">
           <button
             type="button"
             class="curtain-title"
             :class="{ 'is-open': isOpen }"
-            @click.stop="openModal(0)"
-            aria-label="查看技能详情"
+            @click.stop="openTerminal"
+            aria-label="启动技能终端"
           >
             <span class="curtain-title-text">SKILL</span>
-            <span class="curtain-title-hint">点击查看技能详情</span>
+            <span class="curtain-title-hint">点击启动技能终端</span>
           </button>
         </div>
 
@@ -32,106 +32,93 @@
         <div class="curtain-panel panel-d" aria-hidden="true"></div>
         <div class="curtain-panel panel-e" aria-hidden="true"></div>
       </div>
-
-      <!-- 快速入口 -->
-      <div class="skills-tags">
-        <button
-          v-for="(cat, i) in skillCategories"
-          :key="cat.id"
-          type="button"
-          class="skill-tag"
-          @click="openModal(i)"
-        >
-          <span class="skill-tag-name">{{ cat.name }}</span>
-          <span class="skill-tag-count">{{ cat.skills.length }}</span>
-        </button>
-      </div>
     </div>
 
-    <!-- 技能详情弹窗：卷轴展开（非全屏，不锁滚动） -->
+    <!-- 技能终端：CRT 开机动画 + 居中输出 + 命令交互 -->
     <Teleport to="body">
-      <Transition name="pop" :duration="{ enter: 360, leave: 240 }">
-        <div v-if="modalVisible" class="skill-pop-root">
-          <!-- 毛玻璃点击层：点击空白处关闭 -->
-          <div class="skill-pop-mask" @click="closeModal" aria-hidden="true"></div>
+      <Transition name="term" :duration="{ enter: 520, leave: 320 }">
+        <div v-if="terminalVisible" class="term-root">
+          <!-- 深空遮罩：点击空白处关闭 -->
+          <div class="term-mask" @click="closeTerminal" aria-hidden="true"></div>
 
-          <!-- 樱花飘落（围绕弹窗周围，始终在卡片背后） -->
-          <div class="sakura-layer" aria-hidden="true">
-            <span
-              v-for="(p, i) in sakuraPetals"
-              :key="i"
-              class="petal"
-              :style="{
-                left: p.left + '%',
-                width: p.size + 'px',
-                height: (p.size * 1.15).toFixed(1) + 'px',
-                '--petal-drift': p.drift + 'px',
-                '--petal-spin': p.spin + 'deg',
-                '--petal-opacity': p.opacity,
-                animationDelay: p.delay + 's',
-                animationDuration: p.duration + 's',
-              }"
-            ></span>
-          </div>
+          <div
+            class="term-window"
+            role="dialog"
+            aria-modal="true"
+            aria-label="技能终端"
+            @click="onWindowClick"
+          >
+            <!-- 四角 HUD 括号 -->
+            <i class="hud hud-tl" aria-hidden="true"></i>
+            <i class="hud hud-tr" aria-hidden="true"></i>
+            <i class="hud hud-bl" aria-hidden="true"></i>
+            <i class="hud hud-br" aria-hidden="true"></i>
 
-          <!-- 卷轴主体：上下卷轴杆 + 展开的画卷 -->
-          <div class="skill-pop-scroll">
-            <div class="scroll-roller scroll-roller-top" aria-hidden="true"></div>
-            <div
-              class="skill-pop"
-              role="dialog"
-              aria-modal="true"
-              aria-label="技能详情"
-            >
+            <!-- 顶栏：快捷关闭按钮位于正中间 -->
+            <header class="term-header">
+              <span class="term-header-tag tag-left">yuno@sys · ~/skills</span>
+              <i class="term-header-line line-left" aria-hidden="true"></i>
               <button
                 type="button"
-                class="skill-pop-close"
-                @click="closeModal"
-                aria-label="关闭"
+                class="term-close"
+                @click.stop="closeTerminal"
+                aria-label="关闭终端"
               >
                 ×
               </button>
+              <i class="term-header-line line-right" aria-hidden="true"></i>
+              <span class="term-header-tag tag-right">UTF-8 · ZSH</span>
+            </header>
 
-              <header class="modal-header">
-                <h3 class="modal-title">SKILL · 技能栈</h3>
-                <p class="modal-subtitle">AI 时代全栈开发与智能体构建能力</p>
-              </header>
-
-              <div class="modal-tabs">
-                <button
-                  v-for="cat in skillCategories"
-                  :key="cat.id"
-                  type="button"
-                  class="modal-tab"
-                  :class="{ active: activeTab === cat.id }"
-                  @click="activeTab = cat.id"
-                >
-                  {{ cat.name }}
-                </button>
-              </div>
-
-              <div class="modal-body">
+            <!-- 屏幕：扫描线 + 巡逻光束 + 居中内容 -->
+            <div class="term-screen">
+              <div class="term-body" ref="bodyRef" @wheel.passive="scrollStick" @touchmove.passive="scrollStick">
                 <div
-                  v-for="cat in skillCategories"
-                  :key="cat.id"
-                  v-show="activeTab === cat.id"
-                  class="modal-category"
+                  v-for="(line, i) in lines"
+                  :key="i"
+                  class="term-line"
+                  :class="'t-' + line.t"
                 >
-                  <p class="modal-category-desc">{{ cat.description }}</p>
-                  <ol class="skill-list">
-                    <li
-                      v-for="(item, i) in cat.skills"
-                      :key="i"
-                      class="skill-item"
-                    >
-                      <span class="skill-item-index">{{ pad(i + 1) }}</span>
-                      <p class="skill-item-text">{{ item }}</p>
-                    </li>
-                  </ol>
+                  <template v-if="line.t === 'rule'">
+                    <span class="term-rule" aria-hidden="true"></span>
+                  </template>
+                  <template v-else-if="line.t === 'kv'">
+                    <span class="term-kv-k">{{ line.key }}</span>
+                    <span class="term-kv-v">{{ line.val }}</span>
+                  </template>
+                  <template v-else-if="line.t === 'item'">
+                    <span class="term-item-k">{{ line.key }}</span>
+                    <span class="term-item-v">{{ line.text }}</span>
+                  </template>
+                  <template v-else-if="line.t === 'in'">
+                    <span class="term-in-prompt">visitor@yuno:~$</span>
+                    <span class="term-in-cmd">{{ line.text }}</span>
+                  </template>
+                  <template v-else>
+                    <span v-if="line.label" class="term-line-label">{{ line.label }}</span>
+                    <span class="term-line-text">{{ line.text }}</span>
+                  </template>
                 </div>
               </div>
+
+              <!-- 输入行（同样居中） -->
+              <div class="term-input-row" :class="{ muted: !bootDone }">
+                <span class="term-prompt">visitor@yuno<span class="term-prompt-sep">:~$</span></span>
+                <input
+                  ref="inputRef"
+                  v-model="inputText"
+                  class="term-input"
+                  type="text"
+                  :disabled="!bootDone"
+                  placeholder="help"
+                  autocomplete="off"
+                  autocapitalize="off"
+                  spellcheck="false"
+                  aria-label="终端命令输入"
+                  @keydown="onInputKeydown"
+                />
+              </div>
             </div>
-            <div class="scroll-roller scroll-roller-bottom" aria-hidden="true"></div>
           </div>
         </div>
       </Transition>
@@ -140,7 +127,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useScrollLock } from '../composables/useScrollLock'
 
 const { lock: lockScroll, unlock: unlockScroll } = useScrollLock()
@@ -148,15 +135,40 @@ const { lock: lockScroll, unlock: unlockScroll } = useScrollLock()
 const stageRef = ref(null)
 const isOpen = ref(false)
 const isVisible = ref(false)
-const modalVisible = ref(false)
-const activeTab = ref('dev')
 
-// 樱花花瓣配置：每次打开弹窗时重新生成（见 openModal）
-const sakuraPetals = ref([])
+// ============ 终端状态 ============
+const terminalVisible = ref(false)
+const bootDone = ref(false)
+const lines = ref([])
+const inputText = ref('')
+const bodyRef = ref(null)
+const inputRef = ref(null)
+const history = ref([])
+const historyIndex = ref(0)
 
 const pad = (n) => String(n).padStart(2, '0')
+const prefersReducedMotion = () =>
+  window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
-const skillCategories = ref([
+// 会话号：每次开/关终端自增，让进行中的异步打字链失效
+let session = 0
+const timers = new Set()
+const later = (fn, ms) => {
+  const id = setTimeout(() => {
+    timers.delete(id)
+    fn()
+  }, ms)
+  timers.add(id)
+  return id
+}
+const sleep = (ms) => new Promise((resolve) => later(resolve, ms))
+const clearTimers = () => {
+  timers.forEach(clearTimeout)
+  timers.clear()
+}
+
+// ============ 能力数据 ============
+const skillCategories = [
   {
     id: 'dev',
     name: '开发技术',
@@ -182,35 +194,206 @@ const skillCategories = ref([
       '熟悉 Vibe Coding、SDD、Harness Engineering 等多种 AI 编程模式，能利用 Spec-Kit、OpenSpec 等工具驱动 AI 完成大型项目。'
     ]
   }
-])
+]
 
-const toggleCurtain = () => {
-  isOpen.value = !isOpen.value
+// ============ 命令表 ============
+const COMMAND_ALIASES = {
+  help: 'help', '?': 'help', 帮助: 'help',
+  ls: 'ls', list: 'ls', 能力: 'ls', modules: 'ls',
+  dev: 'dev', 开发技术: 'dev',
+  ai: 'ai', aiapp: 'ai', 'ai应用': 'ai', 'ai应用开发': 'ai',
+  clear: 'clear', cls: 'clear', 清空: 'clear',
+  exit: 'exit', quit: 'exit', q: 'exit', 退出: 'exit'
+}
+const COMPLETIONS = ['help', 'ls', 'dev', 'ai', 'clear', 'exit']
+
+const helpLines = () => [
+  { t: 'title', text: '可用命令' },
+  { t: 'kv', key: 'help', val: '查看所有命令' },
+  { t: 'kv', key: 'ls', val: '列出能力模块（开发技术 / AI 应用开发）' },
+  { t: 'kv', key: 'dev', val: '显示完整「开发技术」能力清单' },
+  { t: 'kv', key: 'ai', val: '显示完整「AI 应用开发」能力清单' },
+  { t: 'kv', key: 'clear', val: '清空终端屏幕' },
+  { t: 'kv', key: 'exit', val: '退出终端' }
+]
+
+const lsLines = () => [
+  { t: 'title', text: '能力模块' },
+  ...skillCategories.map((cat) => ({
+    t: 'kv',
+    key: `[${cat.id}]`,
+    val: `${cat.name} — ${cat.skills.length} 项能力`
+  })),
+  { t: 'dim', text: '输入 dev / ai 查看完整清单' }
+]
+
+const moduleLines = (cat) => [
+  { t: 'rule' },
+  { t: 'title', text: `${cat.name} · ${cat.id.toUpperCase()}` },
+  { t: 'desc', text: cat.description },
+  { t: 'rule' },
+  ...cat.skills.map((skill, i) => ({ t: 'item', key: pad(i + 1), text: skill })),
+  { t: 'rule' }
+]
+
+// ============ 打字机 / 输出引擎 ============
+const scrollBottom = () => {
+  nextTick(() => {
+    const el = bodyRef.value
+    if (el) el.scrollTop = el.scrollHeight
+  })
 }
 
-const openModal = (tabIndex = 0) => {
-  activeTab.value = skillCategories.value[tabIndex].id
-  modalVisible.value = true
+// 手动滚动时暂停自动吸底，避免抢滚动条
+const userScrolling = ref(false)
+const scrollStick = () => {
+  const el = bodyRef.value
+  if (!el) return
+  const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 48
+  userScrolling.value = !nearBottom
+}
+
+async function typeLine(line, cps = 110) {
+  const my = session
+  const idx = lines.value.push({ ...line, text: line.text ? '' : line.text }) - 1
+  scrollBottom()
+  const full = line.text || ''
+  if (!full || prefersReducedMotion()) {
+    lines.value[idx].text = full
+    scrollBottom()
+    await sleep(90)
+    return
+  }
+  for (let i = 1; i <= full.length; i++) {
+    if (session !== my) return
+    lines.value[idx].text = full.slice(0, i)
+    if (i % 2 === 0) scrollBottom()
+    await sleep(1000 / cps)
+  }
+}
+
+async function respond(list, stagger = 28) {
+  const my = session
+  for (const line of list) {
+    if (session !== my) return
+    lines.value.push(line)
+    if (!userScrolling.value) scrollBottom()
+    await sleep(stagger)
+  }
+}
+
+// ============ 开机序列 ============
+async function boot() {
+  const my = session
+  bootDone.value = false
+  lines.value = []
+  await typeLine({ t: 'ok', label: '[ OK ]', text: 'YUNO.SYS v3.0 内核加载完成' })
+  await typeLine({ t: 'ok', label: '[ OK ]', text: '挂载能力模块 · dev / ai' })
+  await typeLine({ t: 'ok', label: '[ OK ]', text: '安全信道已建立 · TLS 1.3' })
+  await typeLine({ t: 'dim', text: ' ' })
+  await typeLine({ t: 'accent', text: '欢迎访问, visitor' })
+  await typeLine({ t: 'accent', text: '输入 help 查看所有命令' })
+  if (session !== my) return
+  bootDone.value = true
+  userScrolling.value = false
+  focusInput()
+}
+
+// ============ 开 / 关终端 ============
+const openTerminal = () => {
+  session++
+  clearTimers()
+  terminalVisible.value = true
   lockScroll()
-  // 每次打开重新生成樱花花瓣配置，让飘落轨迹每次都不同
-  sakuraPetals.value = Array.from({ length: 14 }, () => ({
-    left: Math.random() * 100,
-    delay: Math.random() * 4,
-    duration: 4 + Math.random() * 3,
-    size: 8 + Math.random() * 8,
-    drift: -160 + Math.random() * 320,
-    spin: 360 + Math.random() * 720,
-    opacity: +(0.4 + Math.random() * 0.4).toFixed(2)
-  }))
+  boot()
 }
 
-const closeModal = () => {
-  modalVisible.value = false
+const closeTerminal = () => {
+  session++
+  clearTimers()
+  terminalVisible.value = false
+  bootDone.value = false
   unlockScroll()
 }
 
+// ============ 输入处理 ============
+const focusInput = () => {
+  if (window.matchMedia && window.matchMedia('(pointer: fine)').matches) {
+    nextTick(() => inputRef.value?.focus())
+  }
+}
+
+const onWindowClick = () => {
+  const selection = window.getSelection()
+  if (selection && String(selection).length) return
+  focusInput()
+}
+
+const submit = () => {
+  const raw = inputText.value
+  const cmd = raw.trim().toLowerCase()
+  lines.value.push({ t: 'in', text: raw })
+  scrollBottom()
+  inputText.value = ''
+
+  if (!cmd) return
+  history.value.push(raw.trim())
+  historyIndex.value = history.value.length
+
+  const action = COMMAND_ALIASES[cmd]
+  if (!action) {
+    respond([
+      { t: 'err', text: `command not found: ${cmd}` },
+      { t: 'dim', text: '输入 help 查看可用命令' }
+    ])
+    return
+  }
+
+  if (action === 'help') respond(helpLines())
+  else if (action === 'ls') respond(lsLines())
+  else if (action === 'dev') respond(moduleLines(skillCategories[0]))
+  else if (action === 'ai') respond(moduleLines(skillCategories[1]))
+  else if (action === 'clear') {
+    lines.value = []
+    userScrolling.value = false
+  } else if (action === 'exit') {
+    respond([{ t: 'dim', text: '正在断开会话…' }])
+    later(closeTerminal, 520)
+  }
+}
+
+const onInputKeydown = (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault()
+    submit()
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault()
+    if (historyIndex.value > 0) {
+      historyIndex.value--
+      inputText.value = history.value[historyIndex.value]
+    }
+  } else if (e.key === 'ArrowDown') {
+    e.preventDefault()
+    if (historyIndex.value < history.value.length) {
+      historyIndex.value++
+      inputText.value = history.value[historyIndex.value] || ''
+    }
+  } else if (e.key === 'Tab') {
+    e.preventDefault()
+    const v = inputText.value.trim().toLowerCase()
+    if (!v) return
+    const hit = COMPLETIONS.find((c) => c.startsWith(v))
+    if (hit) inputText.value = hit
+  }
+}
+
 const onKeydown = (e) => {
-  if (e.key === 'Escape' && modalVisible.value) closeModal()
+  if (e.key === 'Escape' && terminalVisible.value) closeTerminal()
+}
+
+// ============ 帷幕舞台 ============
+const toggleCurtain = () => {
+  isOpen.value = !isOpen.value
 }
 
 let observer = null
@@ -234,6 +417,7 @@ onBeforeUnmount(() => {
   if (observer && typeof observer.disconnect === 'function') observer.disconnect()
   observer = null
   window.removeEventListener('keydown', onKeydown)
+  clearTimers()
 })
 </script>
 
@@ -293,7 +477,7 @@ onBeforeUnmount(() => {
     linear-gradient(135deg, rgba(139, 92, 246, 0.25), rgba(16, 21, 51, 0.45));
 }
 
-/* ============ 四片帷幕（复刻 tmp.html 的旋转布局） ============ */
+/* ============ 四片帷幕 ============ */
 .curtain-panel {
   position: absolute;
   width: 100%;
@@ -378,50 +562,21 @@ onBeforeUnmount(() => {
   color: var(--text-secondary);
 }
 
-/* ============ 快速入口 chips ============ */
-.skills-tags {
-  display: flex;
-  justify-content: center;
-  gap: 1rem;
-  margin-top: 2rem;
-}
+/* ================================================================ */
+/* ============ 技能终端（CRT 风格，内容全部居中） ================== */
+/* ================================================================ */
+.term-root {
+  /* 终端始终深色，霓虹强调色跟随站点主题 */
+  --ta: var(--primary-light);
+  --ta-deep: var(--primary-color);
+  --t-fg: #a9c4d4;
+  --t-bright: #eaf7ff;
+  --t-bg-0: #0a1520;
+  --t-bg-1: #060c15;
+  --t-bg-2: #04080f;
+  --font-term: 'Cascadia Code', 'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas,
+    'Courier New', monospace;
 
-.skill-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0.7rem 1.4rem;
-  border-radius: 999px;
-  border: 1px solid var(--glass-border);
-  background: var(--bg-card);
-  color: var(--text-primary);
-  cursor: pointer;
-  font-size: 0.95rem;
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  transition: all 0.3s ease;
-  box-shadow: var(--shadow);
-}
-
-.skill-tag:hover {
-  transform: translateY(-3px);
-  border-color: var(--primary-color);
-  color: var(--primary-color);
-  box-shadow: var(--shadow-glow);
-}
-
-.skill-tag-count {
-  font-size: 0.8rem;
-  padding: 0.1rem 0.55rem;
-  border-radius: 999px;
-  background: var(--gradient-primary);
-  color: #fff;
-}
-
-/* ============ 技能详情弹窗（紧凑卡片，非全屏） ============ */
-.skill-pop-root {
-  --rod-a: #8a6a4f;
-  --rod-b: #c9a06c;
   position: fixed;
   inset: 0;
   z-index: 4000;
@@ -429,396 +584,442 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   padding: 1.5rem;
-  pointer-events: none; /* 根容器不拦截事件 */
 }
 
-.dark .skill-pop-root {
-  --rod-a: #6b4f96;
-  --rod-b: #9a7bd8;
-}
-
-.skill-pop-mask {
+.term-mask {
   position: absolute;
   inset: 0;
-  /* 毛玻璃：主题色半透明底 + 背景模糊，展开时给周围「结霜」 */
-  background: var(--glass-bg);
-  backdrop-filter: blur(8px) saturate(120%);
-  -webkit-backdrop-filter: blur(8px) saturate(120%);
-  pointer-events: auto; /* 点击空白处关闭 */
+  background: rgba(2, 8, 16, 0.62);
+  backdrop-filter: blur(6px) saturate(120%);
+  -webkit-backdrop-filter: blur(6px) saturate(120%);
 }
 
-/* ============ 樱花飘落层 ============ */
-.sakura-layer {
-  position: absolute;
-  inset: 0;
+/* ============ 终端窗体 ============ */
+.term-window {
+  position: relative;
+  width: min(880px, 94vw);
+  height: min(640px, 82vh);
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  font-family: var(--font-term);
+  background:
+    radial-gradient(90% 55% at 50% 0%, color-mix(in srgb, var(--ta) 9%, transparent), transparent 70%),
+    radial-gradient(120% 120% at 50% 115%, rgba(10, 30, 40, 0.55), transparent 60%),
+    linear-gradient(180deg, var(--t-bg-0), var(--t-bg-1) 70%, var(--t-bg-2));
+  border: 1px solid color-mix(in srgb, var(--ta) 32%, transparent);
+  box-shadow:
+    0 24px 80px rgba(0, 0, 0, 0.55),
+    0 0 56px color-mix(in srgb, var(--ta) 14%, transparent),
+    inset 0 0 60px rgba(0, 0, 0, 0.45);
   overflow: hidden;
-  pointer-events: none;
-  z-index: 1;
 }
 
-.petal {
+/* ============ 四角 HUD 括号 ============ */
+.hud {
   position: absolute;
-  top: -30px;
-  background: linear-gradient(135deg, #ffc1cf, #ff93ab);
-  border-radius: 50% 0 50% 50%;
-  box-shadow: 0 0 6px rgba(255, 155, 180, 0.5);
-  opacity: var(--petal-opacity, 0.7);
-  animation: petal-fall linear infinite;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--ta);
+  opacity: 0.85;
+  filter: drop-shadow(0 0 5px var(--ta));
+  pointer-events: none;
+  z-index: 5;
 }
 
-@keyframes petal-fall {
-  0% {
-    transform: translate3d(0, -2vh, 0) rotate(0deg);
-    opacity: 0;
-  }
-  12% {
-    opacity: var(--petal-opacity, 0.7);
-  }
-  85% {
-    opacity: var(--petal-opacity, 0.7);
-  }
-  100% {
-    transform: translate3d(var(--petal-drift, 80px), 112vh, 0) rotate(var(--petal-spin, 540deg));
-    opacity: 0;
-  }
-}
+.hud-tl { top: -3px; left: -3px; border-right: none; border-bottom: none; border-top-left-radius: 6px; }
+.hud-tr { top: -3px; right: -3px; border-left: none; border-bottom: none; border-top-right-radius: 6px; }
+.hud-bl { bottom: -3px; left: -3px; border-right: none; border-top: none; border-bottom-left-radius: 6px; }
+.hud-br { bottom: -3px; right: -3px; border-left: none; border-top: none; border-bottom-right-radius: 6px; }
 
-/* ============ 卷轴主体 ============ */
-.skill-pop-scroll {
+/* ============ 顶栏：关闭按钮位于正中间 ============ */
+.term-header {
   position: relative;
+  flex: none;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-bottom: 1px solid color-mix(in srgb, var(--ta) 22%, transparent);
+  background: color-mix(in srgb, var(--ta) 7%, transparent);
+}
+
+/* 关闭按钮两侧的对称渐隐光线 */
+.term-header-line {
+  position: absolute;
+  top: 50%;
+  height: 1px;
+  width: calc(50% - 64px);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--ta) 45%, transparent));
   pointer-events: none;
 }
 
-.skill-pop {
+.line-left { left: 14px; }
+.line-right { right: 14px; transform: scaleX(-1); }
+
+.term-header-tag {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.66rem;
+  letter-spacing: 0.16em;
+  color: color-mix(in srgb, var(--ta) 62%, #8aa);
+  white-space: nowrap;
+}
+
+.tag-left { left: 18px; }
+.tag-right { right: 18px; }
+
+/* 快捷关闭按钮：终端顶部正中间 */
+.term-close {
   position: relative;
-  pointer-events: auto;
-  width: min(720px, 94vw);
-  max-height: min(80vh, 720px);
-  overflow-y: auto;
-  background: var(--bg-card);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  border: 1px solid var(--glass-border);
-  border-radius: 1.25rem;
-  padding: 2.2rem;
-  box-shadow: var(--shadow-lg), 0 0 40px rgba(0, 0, 0, 0.18);
-  transform-origin: center;
-  /* 隐式滚动条：保留滚动能力，隐藏滚动条（Firefox / 旧 Edge / WebKit） */
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-
-.skill-pop::-webkit-scrollbar {
-  display: none;
-}
-
-/* 卷轴杆：上下两根木杆，略宽于画卷 */
-.scroll-roller {
-  position: absolute;
-  left: -12px;
-  right: -12px;
-  height: 12px;
-  border-radius: 999px;
-  pointer-events: none;
-  z-index: 3;
-  background: linear-gradient(90deg, var(--rod-a), var(--rod-b) 30%, var(--rod-a) 55%, var(--rod-b) 80%, var(--rod-a));
-  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.3);
-}
-
-.scroll-roller::after {
-  content: '';
-  position: absolute;
-  left: 5px;
-  right: 5px;
-  top: 2px;
-  height: 3px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.3);
-}
-
-.scroll-roller-top {
-  top: -6px;
-}
-
-.scroll-roller-bottom {
-  top: calc(100% + 6px);
-}
-
-/* ============ 进入 / 关闭动画：卷轴展开 ============ */
-.pop-enter-active {
-  animation: popMaskIn 0.16s ease;
-}
-
-/* 画卷：从中间横线向上下两端展开（clip-path 横向收拢线） */
-.pop-enter-active .skill-pop {
-  animation: scrollUnroll 0.36s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-/* 卷轴杆：从中央汇合处滑向上下两端 */
-.pop-enter-active .scroll-roller-top {
-  animation: rollerTopOut 0.36s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-
-.pop-enter-active .scroll-roller-bottom {
-  animation: rollerBottomOut 0.36s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-
-.pop-leave-active {
-  animation: popMaskOut 0.24s ease forwards;
-}
-
-.pop-leave-active .skill-pop {
-  animation: scrollRoll 0.24s ease forwards;
-}
-
-.pop-leave-active .scroll-roller-top {
-  animation: rollerTopIn 0.24s ease forwards;
-}
-
-.pop-leave-active .scroll-roller-bottom {
-  animation: rollerBottomIn 0.24s ease forwards;
-}
-
-.skill-pop-close {
-  position: absolute;
-  top: 1rem;
-  right: 1rem;
-  width: 38px;
-  height: 38px;
+  z-index: 2;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
-  border: 1px solid var(--glass-border);
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  font-size: 1.4rem;
+  border: 1px solid color-mix(in srgb, var(--ta) 55%, transparent);
+  background: rgba(0, 0, 0, 0.4);
+  color: var(--ta);
+  font-size: 1.35rem;
   line-height: 1;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all 0.3s ease;
-  z-index: 2;
+  text-shadow: 0 0 8px var(--ta);
+  box-shadow:
+    0 0 12px color-mix(in srgb, var(--ta) 30%, transparent),
+    inset 0 0 6px color-mix(in srgb, var(--ta) 18%, transparent);
+  transition: all 0.28s ease;
 }
 
-.skill-pop-close:hover {
-  background: var(--primary-color);
+.term-close:hover {
+  background: #ff4757;
+  border-color: #ff6b81;
   color: #fff;
+  text-shadow: none;
+  box-shadow: 0 0 20px rgba(255, 71, 87, 0.65);
   transform: rotate(90deg);
 }
 
-.modal-header {
-  text-align: center;
-  margin-bottom: 1.6rem;
-}
-
-.modal-title {
-  font-family: var(--font-display);
-  font-size: clamp(1.8rem, 4vw, 2.4rem);
-  font-weight: 900;
-  letter-spacing: 0.12em;
-  background: var(--gradient-primary);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 4px 16px rgba(0, 0, 0, 0.15));
-  margin-bottom: 0.5rem;
-}
-
-.modal-subtitle {
-  color: var(--text-secondary);
-  font-size: 0.95rem;
-  letter-spacing: 0.15em;
-}
-
-.modal-tabs {
-  display: flex;
-  justify-content: center;
-  gap: 0.75rem;
-  margin-bottom: 1.8rem;
-}
-
-.modal-tab {
-  padding: 0.6rem 1.4rem;
-  border-radius: 999px;
-  border: 1px solid var(--glass-border);
-  background: var(--bg-secondary);
-  color: var(--text-secondary);
-  font-size: 0.95rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.3s ease;
-}
-
-.modal-tab:hover {
-  color: var(--primary-color);
-  border-color: var(--primary-color);
-  transform: translateY(-2px);
-}
-
-.modal-tab.active {
-  background: var(--gradient-primary);
-  color: #fff;
-  border-color: transparent;
-  box-shadow: var(--shadow-glow);
-}
-
-.modal-body {
-  margin-bottom: 1.8rem;
-}
-
-.modal-category-desc {
-  color: var(--text-secondary);
-  text-align: center;
-  margin-bottom: 1.5rem;
-  font-size: 1rem;
-  line-height: 1.6;
-}
-
-.skill-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+/* ============ 屏幕（扫描线 + 巡逻光束） ============ */
+.term-screen {
+  position: relative;
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
 }
 
-.skill-item {
+/* 横向扫描线 */
+.term-screen::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(255, 255, 255, 0.03) 0 1px,
+    transparent 1px 3px
+  );
+}
+
+/* 缓慢巡检的竖向光束 */
+.term-screen::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -120px;
+  height: 110px;
+  z-index: 2;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    transparent,
+    color-mix(in srgb, var(--ta) 5%, transparent),
+    transparent
+  );
+  animation: term-beam 7s linear infinite;
+}
+
+@keyframes term-beam {
+  0% { transform: translateY(0); }
+  100% { transform: translateY(calc(100vh)); }
+}
+
+/* ============ 输出区：一反常规，全部居中 ============ */
+.term-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 1.5rem 1.25rem 1rem;
+  text-align: center;
+  font-size: 0.92rem;
+  line-height: 1.9;
+  color: var(--t-fg);
+  -webkit-mask-image: linear-gradient(transparent, #000 26px, #000 calc(100% - 10px), transparent);
+  mask-image: linear-gradient(transparent, #000 26px, #000 calc(100% - 10px), transparent);
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--ta) 35%, transparent) transparent;
+}
+
+.term-body::-webkit-scrollbar {
+  width: 5px;
+}
+
+.term-body::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--ta) 35%, transparent);
+  border-radius: 999px;
+}
+
+.term-line {
+  animation: term-line-in 0.18s ease both;
+}
+
+@keyframes term-line-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+
+/* 普通输出 */
+.t-text {
+  color: var(--t-fg);
+}
+
+/* 弱化 / 注释 */
+.t-dim {
+  color: rgba(150, 180, 195, 0.5);
+}
+
+/* 强调（霓虹发光） */
+.t-accent {
+  color: var(--ta);
+  text-shadow: 0 0 10px color-mix(in srgb, var(--ta) 60%, transparent);
+}
+
+/* 开机自检行 */
+.t-ok .term-line-label {
+  color: #37d67a;
+  text-shadow: 0 0 8px rgba(55, 214, 122, 0.4);
+  margin-right: 0.6em;
+}
+
+.t-ok .term-line-text {
+  color: var(--t-fg);
+}
+
+/* 错误 */
+.t-err {
+  color: #ff6b6b;
+  text-shadow: 0 0 8px rgba(255, 80, 80, 0.35);
+}
+
+/* 章节标题：两侧菱形装饰 */
+.t-title {
+  color: var(--ta);
+  letter-spacing: 0.28em;
+  text-indent: 0.28em;
+  text-shadow: 0 0 12px color-mix(in srgb, var(--ta) 55%, transparent);
+  margin: 0.7em 0 0.3em;
+}
+
+.t-title::before,
+.t-title::after {
+  content: '◆';
+  font-size: 0.55em;
+  opacity: 0.75;
+  margin: 0 0.9em;
+  vertical-align: 0.22em;
+}
+
+/* 描述行 */
+.t-desc {
+  color: rgba(150, 180, 195, 0.62);
+  font-style: italic;
+  max-width: 56ch;
+  margin: 0 auto;
+}
+
+/* 分隔光线 */
+.t-rule {
+  display: block;
+  width: min(420px, 72%);
+  height: 1px;
+  margin: 0.9em auto;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--ta) 45%, transparent),
+    transparent
+  );
+}
+
+/* 命令说明对（key 列右对齐定宽，整行居中） */
+.t-kv {
   display: flex;
-  align-items: flex-start;
-  gap: 0.9rem;
-  padding: 0.9rem 1rem;
-  border-radius: 0.8rem;
-  background: var(--bg-secondary);
-  border: 1px solid transparent;
-  border-left: 4px solid var(--primary-color);
-  transition: all 0.3s ease;
+  justify-content: center;
+  gap: 1.3em;
 }
 
-.skill-item:hover {
-  transform: translateX(5px);
-  border-color: var(--glass-border);
-  box-shadow: var(--shadow);
+.term-kv-k {
+  color: var(--ta);
+  text-shadow: 0 0 8px color-mix(in srgb, var(--ta) 45%, transparent);
+  min-width: 7ch;
+  text-align: right;
 }
 
-.skill-item-index {
-  flex-shrink: 0;
-  width: 2rem;
-  height: 2rem;
-  border-radius: 50%;
+.term-kv-v {
+  color: var(--t-fg);
+  text-align: left;
+}
+
+/* 能力条目（编号 + 正文，整块居中） */
+.t-item {
+  display: flex;
+  justify-content: center;
+  gap: 1em;
+  max-width: 62ch;
+  margin: 0.35em auto;
+}
+
+.term-item-k {
+  flex: none;
+  color: color-mix(in srgb, var(--ta) 75%, #9ab);
+  text-shadow: 0 0 8px color-mix(in srgb, var(--ta) 35%, transparent);
+  font-variant-numeric: tabular-nums;
+}
+
+.term-item-v {
+  text-align: center;
+  color: var(--t-fg);
+}
+
+/* 用户输入回显 */
+.t-in {
+  color: var(--t-bright);
+}
+
+.term-in-prompt {
+  color: color-mix(in srgb, var(--ta) 65%, #9ab);
+  margin-right: 0.7em;
+}
+
+.term-in-cmd {
+  color: var(--t-bright);
+  text-shadow: 0 0 6px color-mix(in srgb, var(--ta) 30%, transparent);
+}
+
+/* ============ 输入行（居中） ============ */
+.term-input-row {
+  flex: none;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.8rem;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  background: var(--gradient-primary);
-  color: #fff;
-  margin-top: 0.1rem;
+  gap: 0.7em;
+  padding: 0.95rem 1.25rem calc(0.95rem + env(safe-area-inset-bottom, 0px));
+  border-top: 1px dashed color-mix(in srgb, var(--ta) 22%, transparent);
+  background: color-mix(in srgb, var(--ta) 4%, transparent);
+  transition: opacity 0.3s ease;
 }
 
-.skill-item-text {
-  margin: 0;
-  color: var(--text-primary);
-  font-size: 0.98rem;
-  line-height: 1.7;
-  text-align: justify;
+.term-input-row.muted {
+  opacity: 0.35;
 }
 
-/* ============ 关键帧 ============ */
-/* 卷轴展开：从中央横线向上下两端铺开画卷 */
-@keyframes scrollUnroll {
+.term-prompt {
+  color: var(--ta);
+  text-shadow: 0 0 10px color-mix(in srgb, var(--ta) 50%, transparent);
+  white-space: nowrap;
+}
+
+.term-prompt-sep {
+  color: color-mix(in srgb, var(--ta) 65%, #9ab);
+}
+
+.term-input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--t-bright);
+  caret-color: var(--ta);
+  font-family: inherit;
+  font-size: 0.95rem;
+  width: min(46ch, 58vw);
+  text-align: left;
+}
+
+.term-input::placeholder {
+  color: rgba(150, 180, 195, 0.35);
+}
+
+.term-input:disabled {
+  cursor: not-allowed;
+}
+
+/* ============ CRT 开机 / 关机动画 ============ */
+.term-enter-active .term-window {
+  animation: crt-on 0.5s cubic-bezier(0.2, 0.8, 0.25, 1) both;
+}
+
+.term-leave-active .term-window {
+  animation: crt-off 0.3s ease both;
+}
+
+.term-enter-from .term-mask {
+  opacity: 0;
+}
+
+.term-enter-active .term-mask {
+  transition: opacity 0.45s ease;
+}
+
+.term-leave-to .term-mask {
+  opacity: 0;
+}
+
+.term-leave-active .term-mask {
+  transition: opacity 0.3s ease;
+}
+
+@keyframes crt-on {
   0% {
-    opacity: 0;
-    transform: scaleY(0.02) scaleX(0.96);
-    clip-path: inset(50% 0 50% 0);
+    transform: scale(1, 0.004);
+    filter: brightness(4) saturate(1.6);
+    opacity: 0.9;
   }
-  30% {
+  50% {
+    transform: scale(1, 0.004);
+    filter: brightness(4);
+  }
+  62% {
+    transform: scale(1.02, 0.55);
+    filter: brightness(1.8);
+  }
+  100% {
+    transform: scale(1, 1);
+    filter: brightness(1);
+  }
+}
+
+@keyframes crt-off {
+  0% {
+    transform: scale(1, 1);
+    filter: brightness(1);
+    opacity: 1;
+  }
+  45% {
+    transform: scale(1, 0.004);
+    filter: brightness(4);
     opacity: 1;
   }
   100% {
-    opacity: 1;
-    transform: scaleY(1) scaleX(1);
-    clip-path: inset(0 0 0 0);
-  }
-}
-
-/* 卷轴收起：画卷向中央横线收拢 */
-@keyframes scrollRoll {
-  0% {
-    opacity: 1;
-    transform: scaleY(1) scaleX(1);
-    clip-path: inset(0 0 0 0);
-  }
-  100% {
-    opacity: 0;
-    transform: scaleY(0.02) scaleX(0.96);
-    clip-path: inset(50% 0 50% 0);
-  }
-}
-
-/* 卷轴杆：上下两根杆从中央汇合处滑向画卷两端 */
-@keyframes rollerTopOut {
-  0% {
-    top: 50%;
-    opacity: 0;
-  }
-  18% {
-    opacity: 1;
-  }
-  100% {
-    top: -6px;
-    opacity: 1;
-  }
-}
-
-@keyframes rollerBottomOut {
-  0% {
-    top: 50%;
-    opacity: 0;
-  }
-  18% {
-    opacity: 1;
-  }
-  100% {
-    top: calc(100% + 6px);
-    opacity: 1;
-  }
-}
-
-/* 卷轴杆收起：两根杆退回中央 */
-@keyframes rollerTopIn {
-  0% {
-    top: -6px;
-    opacity: 1;
-  }
-  100% {
-    top: 50%;
-    opacity: 0;
-  }
-}
-
-@keyframes rollerBottomIn {
-  0% {
-    top: calc(100% + 6px);
-    opacity: 1;
-  }
-  100% {
-    top: 50%;
-    opacity: 0;
-  }
-}
-
-@keyframes popMaskIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-@keyframes popMaskOut {
-  to {
+    transform: scale(0.6, 0.004);
+    filter: brightness(6);
     opacity: 0;
   }
 }
@@ -838,96 +1039,42 @@ onBeforeUnmount(() => {
     letter-spacing: 0.18em;
   }
 
-  .skill-pop {
-    padding: 1.6rem;
+  .term-root {
+    padding: 0.75rem;
   }
 
-  .modal-title {
-    letter-spacing: 0.08em;
-  }
-
-  /* ============ 弹窗改为底部弹层 bottom sheet ============ */
-  .skill-pop-root {
-    align-items: flex-end;
-    padding: 0;
-  }
-
-  .skill-pop-scroll {
+  .term-window {
     width: 100%;
+    height: 84vh;
+    height: 84dvh;
+    border-radius: 10px;
   }
 
-  .skill-pop {
-    width: 100%;
-    max-height: 78dvh;
-    max-height: 78vh;
-    border-radius: 1.5rem 1.5rem 0 0;
-    padding: 1.6rem 1.25rem calc(1.6rem + env(safe-area-inset-bottom, 0px));
+  .term-header {
+    height: 44px;
   }
 
-  /* 卷轴杆收窄，避免超出屏幕横向溢出 */
-  .scroll-roller {
-    left: 6px;
-    right: 6px;
+  /* 顶栏左右标签太挤，仅留光线与中央关闭钮 */
+  .term-header-tag {
+    display: none;
   }
 
-  /* 进入：从底部滑入 */
-  .pop-enter-active .skill-pop {
-    animation: sheetUp 0.36s cubic-bezier(0.16, 1, 0.3, 1);
+  .term-header-line {
+    width: calc(50% - 54px);
   }
 
-  /* 退出：滑回底部 */
-  .pop-leave-active .skill-pop {
-    animation: sheetDown 0.24s ease forwards;
+  .term-body {
+    font-size: 0.85rem;
+    line-height: 1.8;
+    padding: 1.1rem 0.9rem 0.8rem;
   }
 
-  /* 卷轴杆改为淡入淡出，不再做中央汇聚动画 */
-  .pop-enter-active .scroll-roller-top,
-  .pop-enter-active .scroll-roller-bottom {
-    animation: rollerFade 0.36s ease forwards;
+  .term-input {
+    font-size: 16px; /* 防 iOS 聚焦缩放 */
   }
 
-  .pop-leave-active .scroll-roller-top,
-  .pop-leave-active .scroll-roller-bottom {
-    animation: rollerFadeOut 0.24s ease forwards;
-  }
-
-  @keyframes sheetUp {
-    from { transform: translateY(100%); }
-    to { transform: translateY(0); }
-  }
-
-  @keyframes sheetDown {
-    from { transform: translateY(0); }
-    to { transform: translateY(100%); }
-  }
-
-  @keyframes rollerFade {
-    from { opacity: 0; }
-    to { opacity: 1; }
-  }
-
-  @keyframes rollerFadeOut {
-    from { opacity: 1; }
-    to { opacity: 0; }
-  }
-}
-
-@media (max-width: 480px) {
-  .skills-tags {
-    gap: 0.6rem;
-  }
-
-  .skill-tag {
-    padding: 0.6rem 1.1rem;
-    font-size: 0.88rem;
-  }
-
-  .skill-item {
-    padding: 0.8rem;
-  }
-
-  .skill-item-text {
-    font-size: 0.92rem;
+  .term-item-v {
+    text-align: center;
   }
 }
 
@@ -935,21 +1082,12 @@ onBeforeUnmount(() => {
   .curtain-stage,
   .curtain-panel,
   .curtain-title,
-  .skill-pop-root,
-  .skill-pop,
-  .scroll-roller,
-  .petal {
+  .term-window,
+  .term-screen::after,
+  .term-line,
+  .term-close {
     animation: none !important;
     transition: none !important;
-  }
-
-  /* 关闭动画时让卷轴杆复位到正常位置，避免停在中间 */
-  .scroll-roller-top {
-    top: -6px !important;
-  }
-
-  .scroll-roller-bottom {
-    top: calc(100% + 6px) !important;
   }
 }
 </style>

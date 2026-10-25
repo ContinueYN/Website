@@ -1,30 +1,23 @@
 <template>
   <section id="projects" class="projects">
-    <!-- 连续滚动文字 - 向左 -->
-    <div class="scrolling-text-container">
-      <div class="scrolling-text scrolling-left" ref="scrollingTextLeftRef">
-        <span class="text-repeat">PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ </span>
-        <span class="text-repeat">PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ </span>
-      </div>
-    </div>
-
-    <!-- 连续滚动文字 - 向右 -->
-    <div class="scrolling-text-container">
-      <div class="scrolling-text scrolling-right" ref="scrollingTextRightRef">
-        <span class="text-repeat">PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ </span>
-        <span class="text-repeat">PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ </span>
-      </div>
-    </div>
-
-    <!-- 横向滚动容器 -->
+    <!-- 横向滚动容器（pin 视口）：两条跑马灯迁入内部，上下框住卡片行，
+         整段横向滚动旅程中随 pin 一同钉在视口内 -->
     <div class="horizontal-scroll-section" ref="horizontalSectionRef">
       <div class="sticky-wrapper">
+        <!-- 连续滚动文字 - 上：卡片行上方，向左 -->
+        <div class="scrolling-text-container marquee-top" aria-hidden="true">
+          <div class="scrolling-text scrolling-left" ref="scrollingTextLeftRef">
+            <span class="text-repeat">PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ </span>
+            <span class="text-repeat">PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ </span>
+          </div>
+        </div>
+
         <div class="horizontal-container">
           <div class="horizontal-track" ref="horizontalTrackRef">
             <!-- 项目卡片 -->
-            <div 
-              v-for="project in projects" 
-              :key="project.id" 
+            <div
+              v-for="project in projects"
+              :key="project.id"
               class="project-card"
             >
               <div class="card-content">
@@ -47,6 +40,14 @@
             </div>
           </div>
         </div>
+
+        <!-- 连续滚动文字 - 下：卡片行下方，向右 -->
+        <div class="scrolling-text-container marquee-bottom" aria-hidden="true">
+          <div class="scrolling-text scrolling-right" ref="scrollingTextRightRef">
+            <span class="text-repeat">PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ </span>
+            <span class="text-repeat">PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ PROJECT //\\ </span>
+          </div>
+        </div>
       </div>
     </div>
   </section>
@@ -63,6 +64,9 @@ const horizontalSectionRef = ref(null)
 const horizontalTrackRef = ref(null)
 const scrollingTextLeftRef = ref(null)
 const scrollingTextRightRef = ref(null)
+
+// gsap.matchMedia 上下文：横向滚动仅桌面创建，断点切换时自动建/撤
+let mm = null
 
 const projects = ref([
   {
@@ -99,6 +103,34 @@ const projects = ref([
     description: '纯前端现代文学内容平台，TypeScript 构建。跨平台适配（含 Swift、Java、Ruby 多语言工具链），支持文学作品的结构化浏览、搜索与阅读体验优化。',
     githubUrl: 'https://github.com/ContinueYN/Literature',
     technologies: ['TypeScript', 'Swift', 'Python', 'CSS3', 'Java']
+  },
+  {
+    id: 6,
+    title: 'MyWebsite',
+    description: '个人作品集与博客全栈应用。Vue 3 前端 + Go 后端 + PostgreSQL 数据库的前后端分离架构，实现博客内容管理与个人作品展示的完整闭环。',
+    githubUrl: 'https://github.com/ContinueYN/MyWebsite',
+    technologies: ['Vue3', 'Go', 'PostgreSQL', 'Full-Stack']
+  },
+  {
+    id: 7,
+    title: 'PetBattleGame',
+    description: '基于 Java Swing 的回合制精灵对战桌面游戏。单人五关闯关 + 本地双人对战，19 只精灵 / 18 种属性 / 73 个技能，含抽卡与称号系统，数值全部由 JSON 数据驱动。',
+    githubUrl: 'https://github.com/ContinueYN/PetBattleGame',
+    technologies: ['Java', 'Swing', 'Gson', 'JSON', 'OOP']
+  },
+  {
+    id: 8,
+    title: '食堂网站',
+    description: '校园食堂信息网站。首页图片轮播与弹幕交流侧栏、菜品菜单与人气排行、随机诗句彩蛋，Flask 后端 + 多页签前端设计，支持 Docker 一键部署。',
+    githubUrl: 'https://github.com/ContinueYN/Canteen',
+    technologies: ['HTML/CSS', 'JavaScript', 'Python', 'Flask', 'Docker']
+  },
+  {
+    id: 9,
+    title: 'DSH for VS Code',
+    description: 'DeepSeek Harness 的 VS Code 插件，已上架 Marketplace 与 Open VSX。侧边栏内嵌 DSH 面板，通过本地 MCP 桥赋予模型编辑器级工具：读写文件、全库搜索、执行命令与 diff 预览。',
+    githubUrl: 'https://github.com/ContinueYN/dsh-vscode',
+    technologies: ['JavaScript', 'Node.js', 'VS Code Extension', 'MCP', 'DeepSeek']
   }
 ])
 
@@ -126,34 +158,45 @@ onMounted(() => {
     )
   }
 
-  // 横向滚动动画
-  const track = horizontalTrackRef.value
-  const section = horizontalSectionRef.value
-  
-  if (track && section) {
-    const trackWidth = track.scrollWidth
-    const viewportWidth = window.innerWidth
-    
+  // 横向滚动：仅 ≥769px 创建（与 CSS 移动端 max-width:768px 互补）。
+  // 移动端不建触发器，避免无意义的 pin 包裹与假滚动；
+  // 距离必须在函数内实时测量：invalidateOnRefresh 重执行的正是这些函数，
+  // 若捕获挂载时的常量，跨断点 resize 后 pin 距离会停留在旧值
+  // （桌面→移动残留千余像素固定区，移动→桌面则横向滚动失灵）。
+  mm = gsap.matchMedia()
+
+  mm.add('(min-width: 769px)', () => {
+    const track = horizontalTrackRef.value
+    const section = horizontalSectionRef.value
+    if (!track || !section) return
+
+    // clientWidth 相对视口不含滚动条，保证末张卡片能滚到右缘贴齐；
+    // 超宽屏下 track 可能整个放得下，钳为 0 避免负的 pin 距离
+    const distance = () => Math.max(0, track.scrollWidth - track.parentElement.clientWidth)
+
     gsap.to(track, {
-      x: () => -(trackWidth - viewportWidth),
+      x: () => -distance(),
       ease: 'none',
       scrollTrigger: {
         trigger: section,
         start: 'top top',
-        end: () => `+=${trackWidth - viewportWidth}`,
+        end: () => `+=${distance()}`,
         scrub: 1,
         pin: true,
         anticipatePin: 1,
         invalidateOnRefresh: true
       }
     })
-  }
+  })
 })
 
 onBeforeUnmount(() => {
-  // 离开首页后停止无限滚动动画并解除 pin，否则 tween 会在后台持续运行
-  ScrollTrigger.getAll().forEach(trigger => trigger.kill())
-  gsap.killTweensOf([scrollingTextLeftRef.value, scrollingTextRightRef.value, horizontalTrackRef.value])
+  // 离开首页后停止无限滚动动画并解除 pin，否则 tween 会在后台持续运行。
+  // 只回收本组件的上下文；mm.revert 同时撤销 pin、触发器与行内样式
+  // （此前 ScrollTrigger.getAll().forEach(kill) 会误杀其他组件的触发器）
+  mm?.revert()
+  mm = null
+  gsap.killTweensOf([scrollingTextLeftRef.value, scrollingTextRightRef.value])
 })
 </script>
 
@@ -161,23 +204,29 @@ onBeforeUnmount(() => {
 .projects {
   position: relative;
   overflow: hidden;
+
+  /* 跑马灯纵向尺寸令牌：矮视口档位统一缩放用（默认值 ≈ 单条 122px） */
+  --marquee-font-size: 3rem;
+  --marquee-pad-y: 2rem;
+  /* 桌面悬浮导航 dock 的避让高度，仅 ≥769px 定义（见下方媒体查询） */
+  --nav-clearance: 0px;
 }
 
-/* 连续滚动文字 */
+/* 连续滚动文字（位于 pin 视口内，上下框住卡片行） */
 .scrolling-text-container {
   position: relative;
   width: 100%;
-  padding: 2rem 0;
+  flex-shrink: 0;
+  padding: var(--marquee-pad-y) 0;
   background: transparent;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   overflow: hidden;
 }
 
-.scrolling-text-container:first-child {
-  border-bottom: none;
+.marquee-top {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.scrolling-text-container:last-child {
+.marquee-bottom {
   border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
@@ -197,7 +246,7 @@ onBeforeUnmount(() => {
 
 .text-repeat {
   display: inline-block;
-  font-size: 3rem;
+  font-size: var(--marquee-font-size);
   font-weight: 900;
   color: transparent;
   -webkit-text-stroke: 1px var(--primary-color);
@@ -215,19 +264,25 @@ onBeforeUnmount(() => {
   background: transparent;
 }
 
+/* 纵向三段：上跑马灯 / 卡片行(占余) / 下跑马灯；padding-top 避开悬浮 dock */
 .sticky-wrapper {
   position: absolute;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding-top: var(--nav-clearance);
   overflow: hidden;
 }
 
 .horizontal-container {
   position: relative;
   width: 100%;
-  height: 100%;
+  flex: 1 1 auto;
+  /* 允许在矮视口收缩，避免把下跑马灯挤出 100vh 底缘 */
+  min-height: 0;
   display: flex;
   align-items: center;
 }
@@ -491,14 +546,47 @@ onBeforeUnmount(() => {
   transform: scale(1.2) rotate(-10deg);
 }
 
-/* 响应式设计 */
-@media (max-width: 768px) {
-  .scrolling-text-container {
-    padding: 1rem 0;
+/* 桌面：dock 视觉底缘 ≈61px（0.9rem margin + ~46px bar），展开态 ~71px，取 96px 留余量 */
+@media (min-width: 769px) {
+  .projects {
+    --nav-clearance: 96px;
+  }
+}
+
+/* 矮视口降级：只压跑马灯、不动卡片尺寸，保证横向滚动观感不变。
+   纵向预算 = 避让 96 + 跑马灯×2 + 卡片 500 + 呼吸量 */
+@media (min-width: 769px) and (max-height: 860px) {
+  .projects {
+    --marquee-font-size: 2.25rem;
+    --marquee-pad-y: 1.25rem;
+  }
+}
+
+@media (min-width: 769px) and (max-height: 780px) {
+  .projects {
+    --marquee-font-size: 1.5rem;
+    --marquee-pad-y: 0.75rem;
   }
 
   .text-repeat {
-    font-size: 1.5rem;
+    letter-spacing: 0.3rem;
+  }
+}
+
+@media (min-width: 769px) and (max-height: 720px) {
+  .scrolling-text-container {
+    display: none;
+  }
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .projects {
+    --marquee-font-size: 1.5rem;
+    --marquee-pad-y: 1rem;
+  }
+
+  .text-repeat {
     letter-spacing: 0.2rem;
   }
 
@@ -511,10 +599,12 @@ onBeforeUnmount(() => {
   .sticky-wrapper {
     position: relative;
     height: auto;
+    padding-top: 0;
     overflow: visible;
   }
 
   .horizontal-container {
+    flex: none;
     height: auto;
   }
 

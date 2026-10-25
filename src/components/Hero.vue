@@ -45,9 +45,29 @@
             <!-- 音量摆锤：珠串式胶囊嵌在头像圆内，两条线固定锚在圆框上下，左右拖动调音量，拖入两端磁吸底座关闭 -->
             <div ref="swingHost" class="swing-volume" :class="{ 'is-dragging': swingDragging, 'is-off': !isPlaying }">
               <svg class="swing-lines" viewBox="-320 -320 640 640" aria-hidden="true">
-                <!-- 磁吸底座：圆框左右外侧的括号形卡槽（开口朝圆心），胶囊拖到尽头滑出圆缘嵌进去 -->
-                <path ref="dockLRef" class="swing-dock" d=""></path>
-                <path ref="dockRRef" class="swing-dock" d=""></path>
+                <defs>
+                  <!-- 凹槽内壁渐变（y 范围与 SWING.dockY 对应）：上壁暗、下壁亮 = 内凹质感 -->
+                  <linearGradient id="dockWallLight" x1="0" y1="-33" x2="0" y2="33" gradientUnits="userSpaceOnUse">
+                    <stop offset="0" stop-color="rgba(0, 105, 140, 0.6)" />
+                    <stop offset="1" stop-color="rgba(190, 240, 255, 0.9)" />
+                  </linearGradient>
+                  <linearGradient id="dockWallDark" x1="0" y1="-33" x2="0" y2="33" gradientUnits="userSpaceOnUse">
+                    <stop offset="0" stop-color="rgba(40, 15, 70, 0.7)" />
+                    <stop offset="1" stop-color="rgba(216, 180, 254, 0.85)" />
+                  </linearGradient>
+                </defs>
+                <!-- 胶囊仓：圆框左右缘的蚌壳式上下两半壳体（铰链在外缘）+ 虚线空腔内衬；
+                     空仓时半透明展开，胶囊拖到尽头滑入后两半合拢包住胶囊并点亮 -->
+                <g ref="dockLRef" class="swing-dock" data-side="l">
+                  <path class="swing-dock-bed" d=""></path>
+                  <path class="swing-dock-half swing-dock-half--top" d=""></path>
+                  <path class="swing-dock-half swing-dock-half--bottom" d=""></path>
+                </g>
+                <g ref="dockRRef" class="swing-dock" data-side="r">
+                  <path class="swing-dock-bed" d=""></path>
+                  <path class="swing-dock-half swing-dock-half--top" d=""></path>
+                  <path class="swing-dock-half swing-dock-half--bottom" d=""></path>
+                </g>
                 <line ref="lineLRef" class="swing-line" x1="0" y1="0" x2="0" y2="0"></line>
                 <line ref="lineRRef" class="swing-line" x1="0" y1="0" x2="0" y2="0"></line>
               </svg>
@@ -56,7 +76,7 @@
                 class="swing-capsule"
                 :class="{ 'is-latched': swingLatched !== 0 }"
                 role="slider"
-                aria-label="音乐摆锤：左右拖动调节音量，拖入两端底座关闭，拖回中间恢复播放"
+                aria-label="音乐摆锤：左右拖动调节音量，拖入两端胶囊仓关闭，拖回中间恢复播放"
                 aria-valuemin="0"
                 aria-valuemax="100"
                 :aria-valuenow="volumePct"
@@ -65,7 +85,7 @@
                 @pointerup="onCapsulePointerUp"
                 @pointercancel="onCapsulePointerUp"
               >
-                <!-- 内部仅有音量填充指示（::after 随 --vol 增减），无播放/暂停图标 -->
+                <!-- 玻璃药丸：::after 内芯液体随 --vol 升降，::before 气泡上浮，无播放/暂停图标 -->
               </div>
             </div>
           </div>
@@ -224,13 +244,14 @@ const toggleAudio = async () => {
   }
 }
 
-// ---------- 音量摆锤：珠串式胶囊在头像圆内水平滑动 ----------
+// ---------- 音量摆锤：玻璃药丸胶囊在头像圆内水平滑动 ----------
 // 模型：阻尼水平弹簧振子（x 为偏离圆心的水平位移）。胶囊沿水平直径滑动，
 // 两条弹弓线固定锚在圆框正上/正下，拖离中心时绷紧拉长；
-// 圆框左右外侧各有括号形磁吸底座，拖到尽头骑跨圆缘入座锁定。
+// 圆框左右缘各有蚌壳式胶囊仓（上下两半壳体，铰链在外缘），拖到尽头滑入后合拢锁定。
 // 拖拽时 x 跟随指针并即时映射音量 vol = 1 - |x|/xMax（居中最响，向两缘递减）；
 // 松手超过阈值锁定到边缘并暂停，松手中途则带惯性来回摆动；
 // 从边缘拖回中间自动恢复播放。播放/暂停全部由拖拽物理承担，无轻点开关。
+// 初始为暂停：胶囊加载后由弹簧从圆心滑入左槽落座。
 const swingHost = ref(null)
 const capsuleRef = ref(null)
 const lineLRef = ref(null)
@@ -238,16 +259,15 @@ const lineRRef = ref(null)
 const dockLRef = ref(null)
 const dockRRef = ref(null)
 const swingDragging = ref(false)
-const swingLatched = ref(0) // -1=锁在左缘 0=未锁 1=锁在右缘
+const swingLatched = ref(-1) // -1=锁在左缘 0=未锁 1=锁在右缘；初始暂停 → 落座左缘
 const volumePct = ref(100)
 
 const SWING = {
   xOff: 0.85, // 松手超过 85% 行程判定为「拖入底座」→ 关闭
   halfLen: 27, // 胶囊半长（与 CSS 尺寸 54px 对应）
   tiltMax: 10, // 拉离中心时的最大倾角（度，被线拽向中心的姿态）
-  dockIn: 8, // 底座卡臂探入圆内的深度（贴住圆缘）
-  dockOut: 15, // 底座背板到圆缘外侧的距离
-  dockY: 35, // 底座上下卡臂的半距（比胶囊半长略宽，留入座余量）
+  dockW: 15, // 凹槽半宽（胶囊含描边半宽约 12.5 + 余隙）
+  dockY: 33, // 凹槽半高（胶囊含描边半长约 28.5 + 余隙；渐变 y 范围与此对应）
   w0: 5.2, // 固有角频率 → 摆动周期约 1.2s
   damp: 1.1, // 阻尼：摆两三个来回后稳住
 }
@@ -282,7 +302,7 @@ function setLine(el, x1, y1, x2, y2) {
 function renderSwing() {
   const cap = capsuleRef.value
   if (!cap) return
-  // 接近底座时倾角逐臂归零（卡槽是刚性直槽，入座前竖直对齐）；
+  // 接近胶囊仓时倾角逐臂归零（仓是竖直的，入座前竖直对齐）；
   // 中段则朝圆心微倾（被两条弹弓线拽着的感觉）
   const prox = Math.abs(posX) / swingXMax
   const near = clamp01((prox - 0.7) / 0.3)
@@ -301,14 +321,16 @@ function renderSwing() {
   if (lineLRef.value) setLine(lineLRef.value, 0, -swingR, tx, ty)
   if (lineRRef.value) setLine(lineRRef.value, 0, swingR, bx, by)
 
-  // 磁吸底座：越接近对应端越亮（吸引感），停靠后点亮
+  // 胶囊仓：越接近对应端越亮（吸引感）；锁定且真正抵达圆缘（97% 行程）才判定入座，
+  // 两半壳体合拢——初始弹簧滑入与松手锁定都在「到达瞬间」合上
+  const seated = Math.abs(posX) >= swingXMax * 0.97
   if (dockLRef.value) {
     dockLRef.value.style.opacity = (0.35 + 0.65 * (posX <= 0 ? near : 0)).toFixed(3)
-    dockLRef.value.classList.toggle('is-seated', swingLatched.value === -1)
+    dockLRef.value.classList.toggle('is-seated', swingLatched.value === -1 && seated)
   }
   if (dockRRef.value) {
     dockRRef.value.style.opacity = (0.35 + 0.65 * (posX >= 0 ? near : 0)).toFixed(3)
-    dockRRef.value.classList.toggle('is-seated', swingLatched.value === 1)
+    dockRRef.value.classList.toggle('is-seated', swingLatched.value === 1 && seated)
   }
 }
 
@@ -316,20 +338,39 @@ function updateSwingGeometry() {
   const wrapper = swingHost.value?.parentElement
   if (!wrapper) return
   swingR = wrapper.clientWidth / 2
-  // 滑轨终点 = 圆缘：胶囊停靠时一半在圆内、一半嵌进圆框外的括号形底座
+  // 滑轨终点 = 圆缘：胶囊停靠时中心恰在圆缘，被圆外的胶囊仓两半合拢包住
   swingXMax = swingR
-  const bi = swingR - SWING.dockIn
-  const bo = swingR + SWING.dockOut
-  const y = SWING.dockY
-  dockLRef.value?.setAttribute(
-    'd',
-    `M ${(-bi).toFixed(1)} ${-y} L ${(-bo).toFixed(1)} ${-y} L ${(-bo).toFixed(1)} ${y} L ${(-bi).toFixed(1)} ${y}`,
-  )
-  dockRRef.value?.setAttribute(
-    'd',
-    `M ${bi.toFixed(1)} ${-y} L ${bo.toFixed(1)} ${-y} L ${bo.toFixed(1)} ${y} L ${bi.toFixed(1)} ${y}`,
-  )
+  setDock(dockLRef.value, -swingR)
+  setDock(dockRRef.value, swingR)
   renderSwing()
+}
+
+// 胶囊仓轮廓：空腔为整颗虚线内衬胶囊，外壳拆成上下两半（直边在 y=0 相接），
+// 未入座时两半绕外缘铰链向外翻开，入座时合拢成完整外壳
+function setDock(el, cx) {
+  if (!el) return
+  const w = SWING.dockW
+  const h = SWING.dockY
+  const l = (cx - w).toFixed(1)
+  const r = (cx + w).toFixed(1)
+  const t = h - w
+  el.querySelector('.swing-dock-bed')?.setAttribute('d', pillPath(cx, w - 3, h - 3))
+  el.querySelector('.swing-dock-half--top')?.setAttribute(
+    'd',
+    `M ${l} 0 L ${l} ${-t} A ${w} ${w} 0 0 1 ${r} ${-t} L ${r} 0 Z`,
+  )
+  el.querySelector('.swing-dock-half--bottom')?.setAttribute(
+    'd',
+    `M ${l} 0 L ${l} ${t} A ${w} ${w} 0 0 0 ${r} ${t} L ${r} 0 Z`,
+  )
+}
+
+// 竖向胶囊形路径：以 (cx, 0) 为中心，半宽 w、半高 h，端头半径 = 半宽
+function pillPath(cx, w, h) {
+  const t = h - w
+  const l = (cx - w).toFixed(1)
+  const r = (cx + w).toFixed(1)
+  return `M ${l} ${-t} A ${w} ${w} 0 0 1 ${r} ${-t} L ${r} ${t} A ${w} ${w} 0 0 1 ${l} ${t} Z`
 }
 
 function swingLoop() {
@@ -1021,43 +1062,78 @@ const scrollToSection = (sectionId) => {
   transition: stroke 0.25s ease;
 }
 
-/* 磁吸底座：圆框外侧的括号形卡槽，虚线待命，胶囊停靠后变实线满亮 */
+/* 胶囊仓：蚌壳式上下两半壳体（铰链在外缘）+ 虚线空腔内衬。
+   未入座：半透明、两半绕外缘铰链向外翻开露出空腔；入座：两半合拢成完整外壳包住胶囊并点亮 */
 .swing-dock {
-  fill: none;
-  stroke: rgba(0, 180, 216, 0.6);
+  transition: opacity 0.25s ease;
+}
+
+.swing-dock-half {
+  fill: rgba(0, 180, 216, 0.08);
+  stroke: url(#dockWallLight);
   stroke-width: 2.5;
-  stroke-dasharray: 6 8;
-  stroke-linecap: round;
   stroke-linejoin: round;
-  opacity: 0.35;
-  transition: opacity 0.25s ease, stroke-dasharray 0.25s ease;
+  transform-box: fill-box;
+  transition: transform 0.35s cubic-bezier(0.34, 1.25, 0.64, 1), fill 0.3s ease;
+}
+
+/* 空腔内衬：比壳体内缩 3px 的虚线胶囊，标记空仓位 */
+.swing-dock-bed {
+  fill: none;
+  stroke: rgba(0, 180, 216, 0.4);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 6;
+  stroke-linecap: round;
+}
+
+/* 展开态（默认）：上半上移、下半下移，纯垂直分离（不外扩、不越界），露出中间空腔 */
+.swing-dock .swing-dock-half--top {
+  transform: translateY(-8px);
+}
+
+.swing-dock .swing-dock-half--bottom {
+  transform: translateY(8px);
+}
+
+/* 入座：两半合拢，壳体点亮泛光 */
+.swing-dock.is-seated .swing-dock-half {
+  transform: none;
+  fill: rgba(0, 180, 216, 0.2);
 }
 
 .swing-dock.is-seated {
-  stroke-dasharray: none;
   filter: drop-shadow(0 0 7px rgba(0, 180, 216, 0.7));
 }
 
-.swing-volume.is-dragging .swing-line,
-.swing-volume.is-dragging .swing-capsule {
-  --swing-accent: rgba(0, 180, 216, 0.95);
+.swing-volume.is-dragging .swing-line {
+  stroke: rgba(0, 180, 216, 0.95);
 }
 
+/* 玻璃药丸外壳（参考水中胶囊）：全圆头 + 顶部弧光 + 左右缘折射高光 + 通透底色 + 白色玻璃包边 */
 .swing-capsule {
-  --swing-accent: rgba(0, 180, 216, 0.55);
   position: absolute;
-  left: -9px;
+  left: -11px;
   top: -27px;
-  width: 18px;
+  width: 22px;
   height: 54px;
-  border-radius: 10px;
-  background: rgba(0, 180, 216, 0.18);
-  border: 2px solid var(--swing-accent);
+  border-radius: 999px;
+  background:
+    radial-gradient(130% 55% at 50% -18%, rgba(255, 255, 255, 0.65), rgba(255, 255, 255, 0) 60%),
+    linear-gradient(90deg,
+      rgba(255, 255, 255, 0.55) 0%,
+      rgba(255, 255, 255, 0.1) 26%,
+      rgba(255, 255, 255, 0) 46%,
+      rgba(255, 255, 255, 0.22) 86%,
+      rgba(255, 255, 255, 0.5) 100%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(190, 235, 255, 0.08));
+  border: 1.5px solid rgba(255, 255, 255, 0.6);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   box-shadow:
-    0 4px 20px rgba(0, 180, 216, 0.3),
-    inset 0 0 20px rgba(0, 180, 216, 0.1);
+    0 4px 20px rgba(0, 180, 216, 0.35),
+    0 2px 6px rgba(0, 60, 90, 0.18),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.12),
+    inset 0 -6px 10px rgba(0, 180, 216, 0.1);
   cursor: grab;
   touch-action: none;
   user-select: none;
@@ -1066,36 +1142,77 @@ const scrollToSection = (sectionId) => {
   align-items: center;
   justify-content: center;
   will-change: transform;
-  transition: background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+  transition: box-shadow 0.3s ease, filter 0.3s ease;
 }
 
 .swing-capsule:hover {
-  background: rgba(0, 180, 216, 0.32);
+  filter: brightness(1.1);
   box-shadow:
-    0 8px 30px rgba(0, 180, 216, 0.4),
-    inset 0 0 30px rgba(0, 180, 216, 0.15);
+    0 8px 30px rgba(0, 180, 216, 0.45),
+    0 2px 8px rgba(0, 60, 90, 0.2),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.18),
+    inset 0 -6px 10px rgba(0, 180, 216, 0.12);
 }
 
 .swing-volume.is-dragging .swing-capsule {
   cursor: grabbing;
+  box-shadow:
+    0 8px 30px rgba(0, 180, 216, 0.55),
+    0 2px 8px rgba(0, 60, 90, 0.22),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.2),
+    inset 0 -6px 10px rgba(0, 180, 216, 0.14);
 }
 
-/* 内芯亮度 = 音量（--vol 由 JS 写入），随拖动实时变暗/变亮 */
+/* 内芯液体：液面高度 = 音量（--vol 由 JS 写入），顶缘亮一圈当液面反光 */
 .swing-capsule::after {
   content: '';
   position: absolute;
-  inset: 3px;
-  border-radius: 7px;
-  background: linear-gradient(180deg, rgba(66, 239, 172, 0.95), rgba(0, 180, 216, 0.75));
-  opacity: calc(var(--vol, 1) * 0.85);
-  transition: opacity 0.15s ease;
+  left: 3px;
+  right: 3px;
+  bottom: 3px;
+  height: calc((100% - 6px) * var(--vol, 1));
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(66, 239, 172, 0.95), rgba(0, 180, 216, 0.8));
+  border-top: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow:
+    inset 0 -4px 8px rgba(0, 110, 160, 0.35),
+    0 0 10px rgba(0, 220, 200, 0.35);
+  opacity: clamp(0, calc(var(--vol, 1) * 8), 1);
+  transition: height 0.12s linear;
 }
 
-/* 关闭（暂停）态：整体降亮度但保留色彩——停靠位置必须看得清；播放/暂停由亮度与停靠位置表达 */
+/* 液体内气泡：两层错位小圆点上浮，瓷砖周期滚动成无缝循环；音量归零即随液体消失 */
+.swing-capsule::before {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle 2px at 32% 22%, rgba(255, 255, 255, 0.9) 98%, transparent) 0 0 / 22px 44px repeat,
+    radial-gradient(circle 1.5px at 68% 64%, rgba(255, 255, 255, 0.75) 98%, transparent) 11px 22px / 22px 44px repeat;
+  opacity: calc(var(--vol, 1) * 0.8);
+  animation: capsule-bubbles 2.6s linear infinite;
+}
+
+@keyframes capsule-bubbles {
+  from {
+    background-position: 0 0, 11px 22px;
+  }
+  to {
+    background-position: 0 -44px, 11px -22px;
+  }
+}
+
+/* 关闭（暂停）态：降饱和降亮度但玻璃感保留——停靠位置必须看得清；播放/暂停由液面排空与停靠位置表达 */
 .swing-volume.is-off .swing-capsule {
-  background: rgba(0, 180, 216, 0.1);
-  border-color: rgba(0, 180, 216, 0.4);
-  box-shadow: 0 4px 16px rgba(0, 180, 216, 0.15);
+  filter: saturate(0.6) brightness(0.9);
+  box-shadow:
+    0 4px 16px rgba(0, 180, 216, 0.15),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.swing-volume.is-off .swing-capsule::before {
+  animation-play-state: paused;
 }
 
 .swing-volume.is-off .swing-line {
@@ -1103,8 +1220,13 @@ const scrollToSection = (sectionId) => {
   filter: none;
 }
 
-.swing-volume.is-off .swing-dock {
+.swing-volume.is-off .swing-dock-half {
+  fill: rgba(0, 180, 216, 0.05);
   stroke: rgba(0, 180, 216, 0.32);
+}
+
+.swing-volume.is-off .swing-dock-bed {
+  stroke: rgba(0, 180, 216, 0.22);
 }
 
 .swing-volume.is-off .swing-dock.is-seated {
@@ -1117,8 +1239,17 @@ const scrollToSection = (sectionId) => {
   filter: drop-shadow(0 0 4px rgba(170, 126, 247, 0.45));
 }
 
-.dark .swing-dock {
-  stroke: rgba(170, 126, 247, 0.6);
+.dark .swing-dock-half {
+  fill: rgba(170, 126, 247, 0.1);
+  stroke: url(#dockWallDark);
+}
+
+.dark .swing-dock-bed {
+  stroke: rgba(170, 126, 247, 0.45);
+}
+
+.dark .swing-dock.is-seated .swing-dock-half {
+  fill: rgba(170, 126, 247, 0.22);
 }
 
 .dark .swing-dock.is-seated {
@@ -1126,14 +1257,23 @@ const scrollToSection = (sectionId) => {
 }
 
 .dark .swing-volume.is-off .swing-capsule {
-  background: rgba(170, 126, 247, 0.12);
-  border-color: rgba(170, 126, 247, 0.45);
-  box-shadow: 0 4px 16px rgba(170, 126, 247, 0.18);
+  filter: saturate(0.6) brightness(0.85);
+  box-shadow:
+    0 4px 16px rgba(89, 28, 135, 0.18),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06);
 }
 
-.dark .swing-volume.is-off .swing-line,
-.dark .swing-volume.is-off .swing-dock {
+.dark .swing-volume.is-off .swing-line {
   stroke: rgba(170, 126, 247, 0.32);
+}
+
+.dark .swing-volume.is-off .swing-dock-half {
+  fill: rgba(170, 126, 247, 0.06);
+  stroke: rgba(170, 126, 247, 0.32);
+}
+
+.dark .swing-volume.is-off .swing-dock-bed {
+  stroke: rgba(170, 126, 247, 0.25);
 }
 
 .dark .swing-volume.is-off .swing-dock.is-seated {
@@ -1144,27 +1284,44 @@ const scrollToSection = (sectionId) => {
   stroke: rgba(170, 126, 247, 0.95);
 }
 
+/* 深色模式玻璃药丸：高光减淡、底部透出紫，液体换紫色 */
 .dark .swing-capsule {
-  background: rgba(89, 28, 135, 0.25);
-  border-color: rgba(170, 126, 247, 0.55);
+  background:
+    radial-gradient(130% 55% at 50% -18%, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0) 60%),
+    linear-gradient(90deg,
+      rgba(255, 255, 255, 0.3) 0%,
+      rgba(255, 255, 255, 0.06) 26%,
+      rgba(255, 255, 255, 0) 46%,
+      rgba(255, 255, 255, 0.14) 86%,
+      rgba(255, 255, 255, 0.26) 100%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(138, 43, 226, 0.12));
+  border-color: rgba(255, 255, 255, 0.35);
   box-shadow:
-    0 4px 20px rgba(89, 28, 135, 0.3),
-    inset 0 0 20px rgba(89, 28, 135, 0.15);
+    0 4px 20px rgba(89, 28, 135, 0.35),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+    inset 0 -6px 10px rgba(170, 126, 247, 0.12);
 }
 
 .dark .swing-volume.is-dragging .swing-capsule {
-  border-color: rgba(170, 126, 247, 0.95);
+  box-shadow:
+    0 8px 30px rgba(89, 28, 135, 0.5),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.12),
+    inset 0 -6px 10px rgba(170, 126, 247, 0.16);
 }
 
 .dark .swing-capsule::after {
-  background: linear-gradient(180deg, rgba(196, 165, 247, 0.95), rgba(138, 43, 226, 0.75));
+  background: linear-gradient(180deg, rgba(196, 165, 247, 0.95), rgba(138, 43, 226, 0.8));
+  box-shadow:
+    inset 0 -4px 8px rgba(70, 20, 120, 0.4),
+    0 0 10px rgba(170, 126, 247, 0.35);
 }
 
 .dark .swing-capsule:hover {
-  background: rgba(89, 28, 135, 0.4);
+  filter: brightness(1.12);
   box-shadow:
-    0 8px 30px rgba(89, 28, 135, 0.4),
-    inset 0 0 30px rgba(89, 28, 135, 0.2);
+    0 8px 30px rgba(89, 28, 135, 0.45),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.12),
+    inset 0 -6px 10px rgba(170, 126, 247, 0.14);
 }
 
 /* 深色模式摆锤样式见上方 .dark .swing-* 规则 */

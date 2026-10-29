@@ -25,8 +25,7 @@ declare module 'three/tsl' {
   export const dot: any
   export const modelWorldMatrix: any
   export const uniform: any
-  export const matcapUV: any
-  export const texture: any
+  export const cameraPosition: any
   export const distance: any
 }
 declare module 'three/addons/tsl/display/SobelOperatorNode.js' {

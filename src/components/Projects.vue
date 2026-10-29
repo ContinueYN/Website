@@ -87,7 +87,7 @@ const projects = ref([
     id: 3,
     title: 'Portfolio 3.0',
     description: '个人作品集网站第三代。Vue3 + TypeScript + Vite 构建，GSAP 滚动驱动动画、Three.js 粒子背景、VRM 3D 角色交互、SVG 笔画绘制动画，GitHub Actions 自动部署。',
-    githubUrl: 'https://github.com/ContinueYN/website_3.0',
+    githubUrl: 'https://github.com/ContinueYN/Website',
     technologies: ['Vue3', 'TypeScript', 'GSAP', 'Three.js', 'VRM', 'CI/CD']
   },
   {

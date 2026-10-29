@@ -3,7 +3,7 @@
  *
  *  - WebGPU 渲染器 + TSL 节点材质
  *  - IcosahedronGeometry(1,1) 拆解为 80 个外扩三棱柱面（BatchedMesh）
- *  - matcap 贴图着色 + 自旋 + 悬停扩散
+ *  - 黑白液态玻璃着色（菲涅尔边缘光 + 高光带）+ 悬停蓝粉渐变 + 自旋 + 扩散
  *  - 深度 Sobel 描边 + Bayer 抖动后处理
  *
  * 在参考实现之上新增的「点击 → 拼合成球 → 平铺马赛克」转场：
@@ -32,8 +32,7 @@ import {
   dot,
   modelWorldMatrix,
   uniform,
-  matcapUV,
-  texture,
+  cameraPosition,
   distance,
 } from 'three/tsl'
 import { sobel } from 'three/addons/tsl/display/SobelOperatorNode.js'
@@ -66,7 +65,6 @@ const ASSEMBLE_HOLD = 0.2
 const RETURN_SEAL_HOLD = 0.35
 const RETURN_CRACK_DURATION = 0.55
 const FLATTEN_DURATION = 1.1
-const MATCAP_URL = '/assets/matcap-yellow-18.png'
 
 /** 平铺目标：每个实例从「球心矩阵」插值到「屏幕网格矩阵」（three 无类型，按 any 处理） */
 interface GridTarget {
@@ -135,8 +133,6 @@ export async function createClusterIntro(
   renderPipeline.outputNode = outputPass
 
   // ---------- TSL uniforms ----------
-  const dummyTexture = new THREE.DataTexture(new Uint8Array([0, 0, 0, 0]), 1, 1)
-  const mapUniform = uniform(dummyTexture)
   const hoverPointWS = uniform(vec3(0))
   const effectStrength = uniform(0)
   /** 径向分离增益：1=簇状（参考效果）；平铺→0（塌缩为标准半正方形三角） */
@@ -169,27 +165,68 @@ export async function createClusterIntro(
   /** a_base：每个顶点塌缩到的「标准半正方形三角」本地坐标（平铺时几何退化为平面） */
   const baseLocal = attribute('a_base', 'vec3')
 
-  const colorA = vec3(0.8)
-  const colorB = vec3(0)
+  // ---------- 着色：黑白液态玻璃 / 悬停蓝粉渐变 ----------
+  // MeshBasicNodeMaterial 下「液态玻璃」只能用颜色 + 透明度近似（不引入真实折射）：
+  //  · 正对相机的面偏亮、侧壁偏暗 → 玻璃的厚薄差异
+  //  · 掠射边缘叠菲涅尔亮边 → 玻璃轮廓反光
+  //  · 一道锐利高光 + 一片柔光 → 液面反光（纯静态配色，不随时间变化）
+  //  · 本体压一道上亮下暗的纵向渐变 → 液体沉降感
+  //  · 半透明 + 双面渲染 → 透过前面的碎片看到后面的碎片，玻璃才有层次
+  const glassDeep = vec3(0.012, 0.015, 0.022) // 深缝（近黑，偏冷）
+  const glassBody = vec3(0.46, 0.5, 0.58) // 玻璃本体（中灰偏冷，给高光留余量）
+  const glassRim = vec3(1.0, 1.0, 1.0) // 轮廓 / 高光（纯白）
 
-  // 平铺马赛克渐变：天蓝 → 浅粉紫（按屏幕位置平滑过渡）
+  // 平铺马赛克与悬停共用同一组蓝粉色：悬停色 = 平铺色
   const skyBlue = vec3(0.529, 0.808, 0.922) // #87CEEB 天蓝
   const pinkPurple = vec3(0.87, 0.64, 0.92) // 浅粉紫
 
-  const ClusterMaterial = new THREE.MeshBasicNodeMaterial()
+  // 共用：视线方向与正对程度（colorNode 与 opacityNode 都要用）
+  const viewDir = cameraPosition.sub(positionWorld).normalize()
+  const facing = dot(normalWorld, viewDir).abs().clamp(0, 1) // 1=正对相机，0=掠射侧壁
+  const thickness = facing.smoothstep(0.05, 0.9) // 1=厚（正对），0=薄（边缘）
+
+  const ClusterMaterial = new THREE.MeshBasicNodeMaterial({
+    transparent: true,
+    side: THREE.DoubleSide, // 双面：让后面的碎片能透出来
+    depthWrite: true, // 仍写深度，后处理 Sobel 描边才有深度可用
+  })
 
   ClusterMaterial.colorNode = Fn(() => {
-    const toOrigin = vec3(0).sub(positionWorld).normalize()
-    const dotRemapped = dot(normalWorld, toOrigin).remap(-1, 1, 0, 1)
-    // 自旋态（参考配色）：matcap 用于悬停扩散时的彩色面
-    const matcap = texture(mapUniform.value, matcapUV).toVec3()
-    const colAToMatcap = mix(colorA, matcap, hover)
-    const refShade = mix(colorB, colAToMatcap, dotRemapped.smoothstep(0.35, 0.95))
+    const fresnel = float(1).sub(facing).pow(2.4) // 边缘残光强度
+    const keyLight = dot(normalWorld, vec3(0.35, 0.8, 0.5).normalize()).clamp(0, 1)
+    const specular = keyLight.pow(36) // 锐利高光点（液面反光）
+    const sheen = keyLight.pow(5).mul(0.18) // 大面积柔光
+
+    // 纵向液面渐变（世界 Y）：上亮下暗，像液体在玻璃里沉积
+    const liquidT = positionWorld.y.mul(0.5).add(0.5).clamp(0, 1)
+
+    // 悬停渐变：以指针落点为原点沿世界 X 铺开（左天蓝、右粉紫）——
+    // 与平铺马赛克同一组颜色；用位移而非方向，落点处不会出现 normalize(0) 的 NaN
+    const relX = positionWorld.x.sub(hoverPointWS.x).mul(1.8).clamp(-1, 1)
+    const hoverGrad = mix(skyBlue, pinkPurple, relX.mul(0.5).add(0.5))
+
+    // 玻璃本体：厚处偏暗、正面偏亮，叠纵向液面渐变 / 边缘亮边 / 高光 / 柔光 / 极淡色散
+    const glass = mix(glassDeep, glassBody, thickness)
+      .mul(float(0.8).add(liquidT.mul(0.34)))
+      .add(glassRim.mul(fresnel.mul(0.9)))
+      .add(glassRim.mul(specular))
+      .add(glassRim.mul(sheen))
+      .add(hoverGrad.mul(fresnel.pow(3).mul(0.18)))
+
+    // 悬停：蓝粉渐变取代玻璃本色，但保留白色高光点与边缘提亮，仍像一块玻璃
+    const hovered = hoverGrad
+      .add(glassRim.mul(specular.mul(0.5)))
+      .add(hoverGrad.mul(fresnel.mul(0.2)))
+
     // 平铺态：按屏幕位置（z=0 平面）做天蓝→浅粉紫对角渐变，每块马赛克采到不同色
     const gradPos = positionWorld.x.add(positionWorld.y).mul(0.075).add(0.5)
     const flatShade = mix(skyBlue, pinkPurple, gradPos.clamp(0, 1))
-    return mix(refShade, flatShade, flattenMix)
+    return mix(mix(glass, hovered, hover), flatShade, flattenMix)
   })()
+
+  // 透明度：厚处更实、边缘更透（玻璃的厚度差）；平铺时全不透明
+  const glassAlpha = mix(float(0.52), float(0.8), thickness)
+  ClusterMaterial.opacityNode = mix(glassAlpha, float(1), flattenMix)
 
   ClusterMaterial.positionNode = Fn(() => {
     const t = time.mul(0.5)
@@ -202,16 +239,6 @@ export async function createClusterIntro(
     // radialGain=1 时 = 参考位移；=0 时退化为标准半正方形三角
     return mix(baseLocal, displaced, radialGain)
   })()
-
-  // ---------- matcap 贴图 ----------
-  try {
-    const textureLoader = new THREE.TextureLoader()
-    const matcap: any = await withTimeout('matcap 贴图加载', textureLoader.loadAsync(MATCAP_URL), 5000)
-    matcap.colorSpace = THREE.SRGBColorSpace
-    mapUniform.value = matcap
-  } catch (err) {
-    console.warn('[ClusterIntro] matcap 贴图加载失败，使用哑元贴图', err)
-  }
 
   // ---------- 内球 + 80 个外扩三棱柱面 ----------
   const innerGeometry = new THREE.IcosahedronGeometry(1, 1)
@@ -608,8 +635,6 @@ export async function createClusterIntro(
     gsap.killTweensOf(innerMesh.rotation)
     if (flattenProgress) gsap.killTweensOf(flattenProgress)
     renderer.setAnimationLoop(null)
-    mapUniform.value?.dispose?.()
-    dummyTexture.dispose()
     ClusterMaterial.dispose()
     InnerMaterial.dispose()
     facesMesh.dispose()
